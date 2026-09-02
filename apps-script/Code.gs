@@ -1,12 +1,13 @@
 
 const APP = {
-  VERSION: '1.4.1',
+  VERSION: '1.5.0',
   USERS: 'Users',
   TASKS: 'Tasks',
   ALLOCATIONS: 'TaskAllocations',
   SESSIONS: 'Sessions',
   LEAVES: 'Leaves',
   TRIPS: 'Trips',
+  HOLIDAYS: 'Holidays',
   SESSION_HOURS: 12,
   ADMIN_USERNAME: 'admin',
   ADMIN_INITIAL_PASSWORD: 'deltatwv2',
@@ -20,6 +21,7 @@ const ALLOCATION_HEADERS = ['id','taskId','userId','workDate','hours','createdAt
 const SESSION_HEADERS = ['token','userId','expiresAt','createdAt'];
 const LEAVE_HEADERS = ['id','userId','leaveType','startDateTime','endDateTime','createdAt'];
 const TRIP_HEADERS = ['id','userId','purpose','startDate','endDate','createdAt'];
+const HOLIDAY_HEADERS = ['id','holidayDate','holidayName','createdAt'];
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Team Dispatch')
@@ -40,6 +42,7 @@ function setupTeamDispatch() {
   ensureSheet_(ss, APP.SESSIONS, SESSION_HEADERS);
   ensureSheet_(ss, APP.LEAVES, LEAVE_HEADERS);
   ensureSheet_(ss, APP.TRIPS, TRIP_HEADERS);
+  ensureSheet_(ss, APP.HOLIDAYS, HOLIDAY_HEADERS);
 
   const users = readObjects_(APP.USERS);
   if (!users.some(u => String(u.username).toLowerCase() === APP.ADMIN_USERNAME)) {
@@ -62,7 +65,7 @@ function setupTeamDispatch() {
   if (sessions && !sessions.isSheetHidden()) sessions.hideSheet();
 
   SpreadsheetApp.getUi().alert(
-    '初始化完成\n\n已確認 Users / Tasks / TaskAllocations / Sessions / Leaves / Trips 資料表。\n\n既有已接單工作若尚無日排程，已依工作日與請假狀況建立初始排程。'
+    '初始化完成\n\n已確認 Users / Tasks / TaskAllocations / Sessions / Leaves / Trips / Holidays 資料表。\n\n既有已接單工作若尚無日排程，已依工作日、國定假日與請假狀況建立初始排程。'
   );
 }
 
@@ -155,6 +158,8 @@ function api(payloadJson) {
       case 'adminListUsers': return jsonSafe_(adminListUsers_(p));
       case 'adminCreateUser': return jsonSafe_(adminCreateUser_(p));
       case 'adminUpdateUser': return jsonSafe_(adminUpdateUser_(p));
+      case 'adminCreateHoliday': return jsonSafe_(adminCreateHoliday_(p));
+      case 'adminDeleteHoliday': return jsonSafe_(adminDeleteHoliday_(p));
 
       default: throw new Error('未知 action');
     }
@@ -254,6 +259,10 @@ function loadAll_(p) {
     .map(publicTrip_)
     .sort((a,b) => String(b.startDate).localeCompare(String(a.startDate)));
 
+  const holidays = readObjects_(APP.HOLIDAYS)
+    .map(publicHoliday_)
+    .sort((a,b) => String(a.holidayDate).localeCompare(String(b.holidayDate)));
+
   return {
     user: publicUser_(user),
     users,
@@ -261,7 +270,8 @@ function loadAll_(p) {
     outgoing,
     myAllocations,
     myLeaves,
-    myTrips
+    myTrips,
+    holidays
   };
 }
 
@@ -482,9 +492,8 @@ function buildInitialAllocationPlan_(task) {
   const end = String(task.requestDate || '').slice(0,10);
   if (!isDateKey_(start) || !isDateKey_(end) || end < start) return [];
 
-  const leaveDates = leaveDateSet_(task.assigneeId, start, end);
   const dates = dateKeys_(start, end)
-    .filter(d => isWorkdayKey_(d) && !leaveDates[d]);
+    .filter(d => isSchedulableDateForUser_(task.assigneeId, d));
 
   return distributeHours_(dates, Number(task.plannedHours) || 8);
 }
@@ -520,7 +529,8 @@ function appendAllocationPlan_(task, plan) {
 
 function validateAllocationTarget_(task, userId, targetDate) {
   if (!isDateKey_(targetDate)) throw new Error('目標日期格式錯誤');
-  if (!isWorkdayKey_(targetDate)) throw new Error('週六、週日不是工作日，不能排入任務');
+  if (!isWeekdayKey_(targetDate)) throw new Error('週六、週日不是工作日，不能排入任務');
+  if (isHolidayKey_(targetDate)) throw new Error('目標日期為國定假日，不能排入任務');
   if (isUserOnLeaveDate_(userId, targetDate)) throw new Error('目標日期已有請假，不能排入任務');
 
   const start = taskStartDate_(task);
@@ -937,12 +947,24 @@ function checkAvailability_(p) {
     )
     .map(publicTrip_);
 
+  const holidays = readObjects_(APP.HOLIDAYS)
+    .filter(x =>
+      String(x.holidayDate) >= today &&
+      String(x.holidayDate) <= requestDate
+    )
+    .map(publicHoliday_);
+
   return {
     peakLoadPct,
     highLoadDates,
     leaves,
     trips,
-    hasWarning: highLoadDates.length > 0 || leaves.length > 0 || trips.length > 0
+    holidays,
+    hasWarning:
+      highLoadDates.length > 0 ||
+      leaves.length > 0 ||
+      trips.length > 0 ||
+      holidays.length > 0
   };
 }
 
@@ -962,6 +984,7 @@ function teamCalendar_(p) {
   const users = readObjects_(APP.USERS).filter(u => truthy_(u.active));
   const leaves = readObjects_(APP.LEAVES);
   const trips = readObjects_(APP.TRIPS);
+  const holidays = readObjects_(APP.HOLIDAYS);
 
   const members = users.map(u => {
     const loads = calculateUserLoads_(u.id, startDate, endDate);
@@ -977,6 +1000,10 @@ function teamCalendar_(p) {
         )
         .map(x => String(x.leaveType));
 
+      const holidayLabels = holidays
+        .filter(x => String(x.holidayDate) === d)
+        .map(x => String(x.holidayName));
+
       const tripLabels = trips
         .filter(x =>
           String(x.userId) === String(u.id) &&
@@ -986,13 +1013,16 @@ function teamCalendar_(p) {
         )
         .map(x => String(x.purpose));
 
+      const workday = isWorkdayKey_(d);
+
       days[d] = {
-        workday: isWorkdayKey_(d),
-        loadPct: isWorkdayKey_(d) && !leaveLabels.length
+        workday,
+        loadPct: workday && !leaveLabels.length
           ? (loads[d] || 0) / APP.WORKDAY_HOURS * 100
           : 0,
         leaveLabels,
-        tripLabels
+        tripLabels,
+        holidayLabels
       };
     });
 
@@ -1053,9 +1083,8 @@ function calculateUserLoads_(userId, startDate, endDate) {
 }
 
 function spreadHoursForUser_(userId, startDate, endDate, hours) {
-  const leaveDates = leaveDateSet_(userId, startDate, endDate);
   const dates = dateKeys_(startDate, endDate)
-    .filter(d => isWorkdayKey_(d) && !leaveDates[d]);
+    .filter(d => isSchedulableDateForUser_(userId, d));
 
   const plan = distributeHours_(dates, Number(hours));
   const out = {};
@@ -1066,7 +1095,11 @@ function spreadHoursForUser_(userId, startDate, endDate, hours) {
 // ---------- Admin ----------
 function adminListUsers_(p) {
   requireAdmin_(p.token);
-  return { users: readObjects_(APP.USERS).map(publicUser_) };
+  return {
+    users: readObjects_(APP.USERS).map(publicUser_),
+    holidays: readObjects_(APP.HOLIDAYS).map(publicHoliday_)
+      .sort((a,b) => String(a.holidayDate).localeCompare(String(b.holidayDate)))
+  };
 }
 
 function adminCreateUser_(p) {
@@ -1126,6 +1159,130 @@ function adminUpdateUser_(p) {
   });
 }
 
+
+function adminCreateHoliday_(p) {
+  requireAdmin_(p.token);
+
+  const holidayDate = clean_(p.holidayDate);
+  const holidayName = clean_(p.holidayName);
+
+  if (!isDateKey_(holidayDate) || !holidayName) {
+    throw new Error('請輸入國定假日日期與名稱');
+  }
+
+  if (readObjects_(APP.HOLIDAYS).some(x => String(x.holidayDate) === holidayDate)) {
+    throw new Error('此日期已設定國定假日');
+  }
+
+  validateHolidayRebalancePossible_(holidayDate);
+
+  const row = {
+    id: newId_('HOL'),
+    holidayDate,
+    holidayName,
+    createdAt: nowIso_()
+  };
+
+  withLock_(() => {
+    appendObject_(APP.HOLIDAYS, HOLIDAY_HEADERS, row);
+    clearHolidayCache_();
+    rebalanceAllocationsForHoliday_(holidayDate);
+  });
+
+  return { id: row.id };
+}
+
+function adminDeleteHoliday_(p) {
+  requireAdmin_(p.token);
+
+  const id = clean_(p.id);
+  const row = readObjects_(APP.HOLIDAYS).find(x => String(x.id) === id);
+  if (!row) throw new Error('找不到國定假日設定');
+
+  deleteRowsWhere_(APP.HOLIDAYS, x => String(x.id) === id);
+  clearHolidayCache_();
+
+  return { ok: true };
+}
+
+function validateHolidayRebalancePossible_(holidayDate) {
+  const tasks = readObjects_(APP.TASKS)
+    .filter(t => String(t.status) === 'accepted');
+
+  const allocations = readObjects_(APP.ALLOCATIONS);
+
+  tasks.forEach(task => {
+    const affected = allocations.some(a =>
+      String(a.taskId) === String(task.id) &&
+      String(a.workDate) === holidayDate
+    );
+    if (!affected) return;
+
+    const taskStart = taskStartDate_(task);
+    const taskEnd = String(task.requestDate).slice(0,10);
+    const leaveDates = leaveDateSet_(task.assigneeId, taskStart, taskEnd);
+
+    const validDates = dateKeys_(taskStart, taskEnd)
+      .filter(d =>
+        isWeekdayKey_(d) &&
+        d !== holidayDate &&
+        !isHolidayKey_(d) &&
+        !leaveDates[d]
+      );
+
+    if (!validDates.length) {
+      throw new Error(
+        `設定此國定假日會讓「${task.workType}」沒有任何可排程工作日，請先調整該任務需求日期或排程`
+      );
+    }
+  });
+}
+
+function rebalanceAllocationsForHoliday_(holidayDate) {
+  const tasks = readObjects_(APP.TASKS)
+    .filter(t => String(t.status) === 'accepted');
+
+  const allocations = readObjects_(APP.ALLOCATIONS);
+
+  tasks.forEach(task => {
+    const affected = allocations.filter(a =>
+      String(a.taskId) === String(task.id) &&
+      String(a.workDate) === holidayDate
+    );
+
+    if (!affected.length) return;
+
+    const removedHours = roundHours_(
+      affected.reduce((sum,a) => sum + Number(a.hours || 0), 0)
+    );
+
+    const taskStart = taskStartDate_(task);
+    const taskEnd = String(task.requestDate).slice(0,10);
+
+    const validDates = dateKeys_(taskStart, taskEnd)
+      .filter(d => isSchedulableDateForUser_(task.assigneeId, d));
+
+    if (!validDates.length) {
+      throw new Error(
+        `國定假日會讓「${task.workType}」沒有任何可排程工作日，請先調整該任務需求日期或排程`
+      );
+    }
+
+    affected.forEach(a =>
+      deleteRowsWhere_(APP.ALLOCATIONS, x => String(x.id) === String(a.id))
+    );
+
+    distributeHours_(validDates, removedHours).forEach(add => {
+      mergeHoursIntoTaskDate_(
+        task.id,
+        task.assigneeId,
+        add.workDate,
+        add.hours
+      );
+    });
+  });
+}
+
 // ---------- Data helpers ----------
 function getDb_() {
   const id = PropertiesService.getScriptProperties().getProperty(APP.DB_PROPERTY);
@@ -1173,7 +1330,7 @@ function normalizeCell_(v, header) {
   // Google Sheets often converts date-only strings into Date objects.
   // For date-only columns we must convert them back in the script timezone;
   // using toISOString().slice(0,10) can shift the date by one day in UTC+8.
-  if (['requestDate','startDate','endDate','workDate'].includes(String(header))) {
+  if (['requestDate','startDate','endDate','workDate','holidayDate'].includes(String(header))) {
     return Utilities.formatDate(
       v,
       Session.getScriptTimeZone() || 'Asia/Taipei',
@@ -1305,6 +1462,16 @@ function publicTrip_(x) {
   };
 }
 
+
+function publicHoliday_(x) {
+  return {
+    id: String(x.id),
+    holidayDate: String(x.holidayDate || '').slice(0,10),
+    holidayName: String(x.holidayName || ''),
+    createdAt: String(x.createdAt || '')
+  };
+}
+
 function taskSort_(a,b) {
   const order = { pending:0, accepted:1, rejected:2, completed:3 };
   return (order[a.status] ?? 9) - (order[b.status] ?? 9)
@@ -1313,6 +1480,31 @@ function taskSort_(a,b) {
 }
 
 // ---------- Date / schedule helpers ----------
+
+let HOLIDAY_CACHE_ = null;
+
+function clearHolidayCache_() {
+  HOLIDAY_CACHE_ = null;
+}
+
+function holidayMap_() {
+  if (HOLIDAY_CACHE_ !== null) return HOLIDAY_CACHE_;
+  HOLIDAY_CACHE_ = {};
+  readObjects_(APP.HOLIDAYS).forEach(x => {
+    const d = String(x.holidayDate || '').slice(0,10);
+    if (d) HOLIDAY_CACHE_[d] = String(x.holidayName || '國定假日');
+  });
+  return HOLIDAY_CACHE_;
+}
+
+function isHolidayKey_(date) {
+  return !!holidayMap_()[String(date)];
+}
+
+function isSchedulableDateForUser_(userId, date) {
+  return isWorkdayKey_(date) && !isUserOnLeaveDate_(userId, date);
+}
+
 function leaveDateSet_(userId, startDate, endDate) {
   const out = {};
 
@@ -1361,10 +1553,14 @@ function isDateKey_(s) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 }
 
-function isWorkdayKey_(s) {
+function isWeekdayKey_(s) {
   const d = new Date(String(s) + 'T12:00:00');
   const day = d.getDay();
   return day !== 0 && day !== 6;
+}
+
+function isWorkdayKey_(s) {
+  return isWeekdayKey_(s) && !isHolidayKey_(s);
 }
 
 function dateKeys_(start, end) {

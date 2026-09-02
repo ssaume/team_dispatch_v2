@@ -9,6 +9,15 @@
 </head>
 <body>
   <div id="app"></div>
+  <div id="commitOverlay" class="commit-overlay hidden" role="status" aria-live="polite" aria-busy="true">
+    <div class="commit-loading-card">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <div>
+        <strong id="commitLoadingTitle">資料處理中</strong>
+        <div id="commitLoadingText">正在更新 Google Drive，請稍候…</div>
+      </div>
+    </div>
+  </div>
 
   <template id="loginTpl">
     <main class="login-shell">
@@ -36,7 +45,7 @@
           <button data-view="request" class="nav-btn">請別人協助</button>
           <button data-view="schedule" class="nav-btn">請假／出差</button>
           <button data-view="team" class="nav-btn">團隊出勤</button>
-          <button data-view="admin" id="adminNav" class="nav-btn hidden">帳號管理</button>
+          <button data-view="admin" id="adminNav" class="nav-btn hidden">系統管理</button>
         </nav>
         <div class="user-box">
           <div id="whoami"></div>

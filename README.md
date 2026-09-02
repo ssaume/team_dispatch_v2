@@ -1,70 +1,151 @@
-# Team Dispatch v1.4.1 — Bug Fix
+# Team Dispatch v1.5.0
 
-本版修正 v1.4.0 四個問題。
+## 1. Admin 國定假日設定
 
-## 修正 1：日曆拖拉選擇合併但沒有合併
+「帳號管理」已擴充成「系統管理」，新增：
 
-原因不是拖拉 UI，而是 Google Sheets 會把 `workDate` 自動轉成 Date。
-v1.4.0 後端把 Date 轉成 ISO 字串後，拿去和 `YYYY-MM-DD` 比對，導致同日期判斷失敗。
+- 國定假日日期
+- 國定假日名稱
+- 刪除國定假日
 
-v1.4.1：
-- `workDate`、`requestDate`、`startDate`、`endDate` 一律以 `Asia/Taipei` 的 `yyyy-MM-dd` 讀取。
-- 合併判斷恢復正常。
-- 如果 v1.4.0 已經因 bug 把兩個區塊搬到同一天但沒有合併，可以直接把其中一塊拖到「同一天」再選確認，即可補做合併。
+資料保存於新的 Google Sheet：
 
-## 修正 2：團隊出勤看不到 Loading 數字
+`Holidays`
 
-同樣是上述日期型別造成 `TaskAllocations` 的日期 key 對不到團隊甘特圖日期。
+欄位：
 
-v1.4.1：
-- Loading 日期 key 已修正。
-- 工作日即使沒有 Loading，也明確顯示 `0%`。
-- 請假日仍不顯示 Loading，避免與請假疊加。
+```text
+id
+holidayDate
+holidayName
+createdAt
+```
 
-## 修正 3：admin 新增 User 成功後跳出 reset null
+國定假日套用到所有使用者：
 
-原因是瀏覽器事件物件的 `e.currentTarget` 在 `await` 後不保證仍存在。
+- 我的工作日曆顯示「國休｜假日名稱」
+- 團隊出勤甘特圖顯示國定假日
+- 國定假日 Loading = 0
+- 任務不會在國定假日建立初始排程
+- 任務不可拖到國定假日
+- 任務不可分拆到國定假日
+- 派工 Loading 試算會自動排除國定假日
+- 派工提示會列出需求期間內的國定假日
+- 請假 / 出差的「工作日」計算也會排除國定假日
 
-v1.4.1：
-- 在進入非同步流程前先保存 form reference。
-- 同時修正「請別人協助」、「新增請假」、「新增出差」中相同的潛在問題。
-- 移除 `loadAll()` 背景重複呼叫 admin 畫面的競態。
+### 新增國定假日時已有任務怎麼辦
 
-## 修正 4：登入時輸入帳號後看起來自動登入
+若該日期已有進行中的 TaskAllocations：
 
-v1.4.0 會在頁面連上 Google Apps Script 後，如果瀏覽器還留有上一個 Session Token，就自動恢復登入。
-如果此時使用者剛好正在輸入帳號，看起來就像「輸入帳號後自動登入」。
+1. 該日 Task Allocation 移除
+2. 工時重新平均到同一任務區間內其他可工作日期
+3. 同時排除：
+   - 週末
+   - 其他國定假日
+   - 該使用者請假日
+4. 如果某個受影響任務已經完全沒有其他可工作日期，系統會拒絕新增該國定假日，避免工時遺失
 
-v1.4.1：
-- 每次重新開啟或重新整理網站都清除本機 Session Token。
-- 一定要輸入帳號與密碼。
-- 一定要按「登入」按鈕才會送出登入。
-- Login form 關閉瀏覽器自動提交行為。
+刪除國定假日時，不會自動把任務搬回原日期；該日期只會重新變成可排程工作日。
 
-## 從 v1.4.0 更新
+---
 
-### Google Apps Script
-1. 將 `apps-script/Code.gs` 全部替換成 v1.4.1。
-2. 儲存。
-3. `部署 → 管理部署作業 → 編輯 → 新版本 → 部署`。
-4. **不需要重新初始化 Google Sheet。**
-5. `TaskAllocations` 與既有資料不會被刪除。
+## 2. Commit Loading 遮罩
 
-### GitHub
+所有會寫入 Google Sheet 的操作現在都有全頁 Loading：
+
+- 新增自己的工作
+- 派工
+- 接受 / 拒絕
+- 緊急狀態
+- 完成 / 改回未完成
+- 日曆拖拉
+- 任務合併
+- 比例分拆
+- 新增 / 刪除請假
+- 新增 / 刪除出差
+- 新增 / 修改帳號
+- 新增 / 刪除國定假日
+
+例如拖拉時會顯示：
+
+`正在移動並重新計算排程…`
+
+新增國定假日時：
+
+`正在新增國定假日並重新計算所有受影響排程…`
+
+遮罩期間不能再點其他操作，Google Apps Script 回覆後自動消失。
+
+---
+
+# 從 v1.4.1 升級
+
+## A. 建議先備份
+
+Google Sheet：
+
+`檔案 → 建立副本`
+
+## B. 更新 Apps Script
+
+1. `Team Dispatch DB → 擴充功能 → Apps Script`
+2. 將 `Code.gs` 全部替換成 v1.5.0
+3. 儲存
+
+## C. 執行初始化 / 修復資料表
+
+這次 **必須執行一次**：
+
+`Team Dispatch → 初始化 / 修復資料表`
+
+會新增：
+
+`Holidays`
+
+既有：
+
+- Users
+- Tasks
+- TaskAllocations
+- Sessions
+- Leaves
+- Trips
+
+都會保留。
+
+## D. 重新部署 Apps Script
+
+`部署 → 管理部署作業 → 編輯 → 新版本 → 部署`
+
+說明可填：
+
+`Team Dispatch v1.5.0`
+
+## E. 更新 GitHub
+
 更新：
+
 - `index.html`
 - `app.js`
 - `styles.css`
 
-保留：
+保留目前的：
+
 - `config.js`
 
-Commit 到 `main`，Pages 部署完成後按 `Ctrl + F5`。
+Commit 到 `main`。
 
-## 建議驗證順序
-1. 重新整理網站：確認不會自動登入。
-2. 只輸入帳號：確認不會登入。
-3. 輸入帳號 + 密碼後按登入：正常登入。
-4. 團隊出勤：工作日應至少看到 `0%`，有工作者看到實際 Loading。
-5. 把 9/2 的同任務區塊拖到 9/3，選「確定」：應只剩一個加總後區塊。
-6. Admin 建立測試帳號：建立後不應再出現 `Cannot read properties of null (reading 'reset')`。
+等 GitHub Pages 完成後：
+
+`Ctrl + F5`
+
+---
+
+# 建議測試
+
+1. Admin 建立明天為「測試國定假日」
+2. 我的工作日曆該日應顯示國休，沒有 Task
+3. 團隊出勤該日所有人都顯示國休，沒有 Loading %
+4. 嘗試把 Task 拖到該日，應被後端拒絕
+5. 刪除測試國定假日
+6. 建立 / 修改一筆工作，確認前端會出現「資料處理中」
