@@ -1,6 +1,6 @@
 
 const APP = {
-  VERSION: '1.4.0',
+  VERSION: '1.4.1',
   USERS: 'Users',
   TASKS: 'Tasks',
   ALLOCATIONS: 'TaskAllocations',
@@ -549,16 +549,18 @@ function moveAllocation_(p) {
 
     validateAllocationTarget_(task, user.id, targetDate);
 
-    if (String(source.workDate) === targetDate) {
-      result = { ok: true, merged: false };
-      return;
-    }
-
     const targetSame = allocations.filter(a =>
       String(a.taskId) === String(source.taskId) &&
       String(a.workDate) === targetDate &&
       String(a.id) !== allocationId
     );
+
+    // Same-day drop is normally a no-op, but allow it when there are
+    // multiple same-task blocks and the user explicitly chooses merge.
+    if (String(source.workDate) === targetDate && !(merge && targetSame.length)) {
+      result = { ok: true, merged: false };
+      return;
+    }
 
     if (merge && targetSame.length) {
       const total = roundHours_(
@@ -1160,14 +1162,26 @@ function readObjects_(name) {
     .filter(r => r.some(v => v !== '' && v !== null))
     .map((r, idx) => {
       const o = { _row: idx + 2 };
-      headers.forEach((h,i) => o[h] = normalizeCell_(r[i]));
+      headers.forEach((h,i) => o[h] = normalizeCell_(r[i], h));
       return o;
     });
 }
 
-function normalizeCell_(v) {
-  if (v instanceof Date) return v.toISOString();
-  return v;
+function normalizeCell_(v, header) {
+  if (!(v instanceof Date)) return v;
+
+  // Google Sheets often converts date-only strings into Date objects.
+  // For date-only columns we must convert them back in the script timezone;
+  // using toISOString().slice(0,10) can shift the date by one day in UTC+8.
+  if (['requestDate','startDate','endDate','workDate'].includes(String(header))) {
+    return Utilities.formatDate(
+      v,
+      Session.getScriptTimeZone() || 'Asia/Taipei',
+      'yyyy-MM-dd'
+    );
+  }
+
+  return v.toISOString();
 }
 
 function appendObject_(name, headers, obj) {

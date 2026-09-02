@@ -42,3 +42,5 @@ dialog{border:0;border-radius:16px;padding:0;box-shadow:0 18px 80px rgba(0,0,0,.
 .allocation-row .split-btn{padding:6px 9px;font-size:12px}
 .allocation-help{margin-top:10px}
 .split-summary{background:#f5f9fb;border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0}
+
+.load-chip{min-width:38px;text-align:center;color:var(--ink);border:1px solid rgba(80,110,120,.12)}

@@ -17,10 +17,10 @@
         <h1>Team Dispatch</h1>
         <p class="muted">團隊派工與個人工作清單</p>
         <div id="bridgeState" class="bridge-state">正在連線 Google Drive…</div>
-        <form id="loginForm">
-          <label>帳號<input name="username" autocomplete="username" required></label>
-          <label>密碼<input type="password" name="password" autocomplete="current-password" required></label>
-          <button class="primary" type="submit" disabled>登入</button>
+        <form id="loginForm" autocomplete="off">
+          <label>帳號<input name="username" autocomplete="off" required></label>
+          <label>密碼<input type="password" name="password" autocomplete="off" required></label>
+          <button class="primary" id="loginBtn" type="button" disabled>登入</button>
           <div id="loginError" class="error"></div>
         </form>
       </section>

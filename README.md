@@ -1,176 +1,70 @@
+# Team Dispatch v1.4.1 — Bug Fix
 
-# Team Dispatch v1.4.0
+本版修正 v1.4.0 四個問題。
 
-## 本版重點
+## 修正 1：日曆拖拉選擇合併但沒有合併
 
-### 1. 我的工作日曆改為「實際日排程」
+原因不是拖拉 UI，而是 Google Sheets 會把 `workDate` 自動轉成 Date。
+v1.4.0 後端把 Date 轉成 ISO 字串後，拿去和 `YYYY-MM-DD` 比對，導致同日期判斷失敗。
 
-過去 `plannedHours` 只是在接單日到需求日之間平均計算。
-v1.4.0 新增 Google Sheet：
+v1.4.1：
+- `workDate`、`requestDate`、`startDate`、`endDate` 一律以 `Asia/Taipei` 的 `yyyy-MM-dd` 讀取。
+- 合併判斷恢復正常。
+- 如果 v1.4.0 已經因 bug 把兩個區塊搬到同一天但沒有合併，可以直接把其中一塊拖到「同一天」再選確認，即可補做合併。
 
-`TaskAllocations`
+## 修正 2：團隊出勤看不到 Loading 數字
 
-每一列代表某個任務在某一天實際排了多少小時：
+同樣是上述日期型別造成 `TaskAllocations` 的日期 key 對不到團隊甘特圖日期。
 
-```text
-id
-taskId
-userId
-workDate
-hours
-createdAt
-updatedAt
-```
+v1.4.1：
+- Loading 日期 key 已修正。
+- 工作日即使沒有 Loading，也明確顯示 `0%`。
+- 請假日仍不顯示 Loading，避免與請假疊加。
 
-因此拖拉、合併、分拆後的結果都會真正保存。
+## 修正 3：admin 新增 User 成功後跳出 reset null
 
-### 2. 拖拉
+原因是瀏覽器事件物件的 `e.currentTarget` 在 `await` 後不保證仍存在。
 
-只有狀態為「已接單」的工作可以拖拉。
+v1.4.1：
+- 在進入非同步流程前先保存 form reference。
+- 同時修正「請別人協助」、「新增請假」、「新增出差」中相同的潛在問題。
+- 移除 `loadAll()` 背景重複呼叫 admin 畫面的競態。
 
-- 拖到沒有相同任務的工作日：直接搬移。
-- 拖到已有相同任務的工作日：系統詢問是否合併。
-  - 確定：合併成一個區塊，例如 0.5h + 0.5h = 1h。
-  - 取消：仍然移動，但保留兩個獨立區塊。
-- 週六、週日不能放。
-- 有請假的日期不能放。
-- 不能拖到接單日以前或需求日以後。
-- 已完成工作只保留歷史排程，不可拖拉。
+## 修正 4：登入時輸入帳號後看起來自動登入
 
-### 3. 比例分拆
+v1.4.0 會在頁面連上 Google Apps Script 後，如果瀏覽器還留有上一個 Session Token，就自動恢復登入。
+如果此時使用者剛好正在輸入帳號，看起來就像「輸入帳號後自動登入」。
 
-點日曆任務，進入任務內容後，可在「日曆排程」看到每一個日排程區塊。
+v1.4.1：
+- 每次重新開啟或重新整理網站都清除本機 Session Token。
+- 一定要輸入帳號與密碼。
+- 一定要按「登入」按鈕才會送出登入。
+- Login form 關閉瀏覽器自動提交行為。
 
-按「比例分拆」後：
+## 從 v1.4.0 更新
 
-- 輸入要移到其他日期的比例，例如 50%。
-- 指定目標日期。
-- 系統顯示原日期保留工時與移出工時。
-- 如果目標日期已有同一任務，也會詢問是否合併。
+### Google Apps Script
+1. 將 `apps-script/Code.gs` 全部替換成 v1.4.1。
+2. 儲存。
+3. `部署 → 管理部署作業 → 編輯 → 新版本 → 部署`。
+4. **不需要重新初始化 Google Sheet。**
+5. `TaskAllocations` 與既有資料不會被刪除。
 
-例如：
-
-```text
-9/3   1.0h
-```
-
-設定：
-
-```text
-移出 50%
-目標日 9/4
-```
-
-結果：
-
-```text
-9/3   0.5h
-9/4   0.5h
-```
-
-### 4. Loading
-
-團隊 Loading 不再重新平均計算已接單工作，而是直接加總 `TaskAllocations`。
-
-因此你在自己的日曆拖拉後：
-
-```text
-個人工作日曆
-↓
-TaskAllocations
-↓
-團隊 Loading 甘特圖
-```
-
-會同步變化。
-
-### 5. 請假
-
-新增請假時，如果請假日已有進行中的工作排程：
-
-- 該日排程會自動移除。
-- 工時平均重新分配到該任務期間其他沒有請假的工作日。
-- 如果整個任務期間已經沒有任何可用工作日，請假建立會被阻止並提示先調整任務。
-
-### 6. Outlook
-
-本版不包含 Outlook / ICS / Microsoft Graph 匯入功能。
-
----
-
-# 從 v1.3.2 升級到 v1.4.0
-
-## A. Google Apps Script
-
-1. 打開 `Team Dispatch DB`
-2. `擴充功能 → Apps Script`
-3. 將現有 `Code.gs` 全部替換為 v1.4.0 的：
-   `apps-script/Code.gs`
-4. 儲存
-
-`Response.html` 不需要修改。
-
-## B. 回 Google Sheet 初始化
-
-回 `Team Dispatch DB`，重新整理後執行：
-
-`Team Dispatch → 初始化 / 修復資料表`
-
-系統會新增：
-
-`TaskAllocations`
-
-並替既有的已接單 / 已完成工作建立初始日排程。
-
-**Users、Tasks、Leaves、Trips 等既有資料不會刪除。**
-
-## C. 重新部署 Apps Script
-
-`部署 → 管理部署作業 → 編輯 → 新版本`
-
-說明可填：
-
-`Team Dispatch v1.4.0`
-
-再按部署。
-
-原本 `/exec` URL 通常不變。
-
-## D. GitHub
-
+### GitHub
 更新：
-
 - `index.html`
 - `app.js`
 - `styles.css`
 
-保留你目前已設定好的：
-
+保留：
 - `config.js`
 
-Commit 到 `main`。
+Commit 到 `main`，Pages 部署完成後按 `Ctrl + F5`。
 
-GitHub Pages 部署完成後：
-
-`Ctrl + F5`
-
----
-
-# 初次驗證建議
-
-建立一個 1 小時、跨兩個工作日的自己的工作。
-
-應該會先看到：
-
-```text
-9/2  0.5h
-9/3  0.5h
-```
-
-把 9/2 的 0.5h 拖到 9/3：
-
-- 選擇合併 → 9/3 變成 1.0h。
-- 點進任務 → 日曆排程 → 9/3 1.0h → 比例分拆。
-- 設 50%，目標 9/2 → 再回到 0.5h / 0.5h。
-
-這可以完整驗證拖拉、合併、分拆、Google Sheet 保存與 Loading 同步。
+## 建議驗證順序
+1. 重新整理網站：確認不會自動登入。
+2. 只輸入帳號：確認不會登入。
+3. 輸入帳號 + 密碼後按登入：正常登入。
+4. 團隊出勤：工作日應至少看到 `0%`，有工作者看到實際 Loading。
+5. 把 9/2 的同任務區塊拖到 9/3，選「確定」：應只剩一個加總後區塊。
+6. Admin 建立測試帳號：建立後不應再出現 `Cannot read properties of null (reading 'reset')`。

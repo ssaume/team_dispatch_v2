@@ -18,11 +18,82 @@ function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHo
 function validGoogleOrigin(origin){try{const u=new URL(origin);return u.protocol==='https:'&&(u.hostname==='script.google.com'||u.hostname==='script.googleusercontent.com'||u.hostname.endsWith('.googleusercontent.com'))}catch{return false}}
 window.addEventListener('message',ev=>{if(!validGoogleOrigin(ev.origin))return;const m=ev.data||{};if(m.channel!=='team-dispatch-rpc'||!m.id)return;const p=pendingRpc.get(m.id);if(!p)return;pendingRpc.delete(m.id);clearTimeout(p.timer);try{p.iframe.remove()}catch{}m.ok?p.resolve(m.result):p.reject(new Error(m.error||'操作失敗'))});
 function rpc(action,payload={}){if(!cfg.APPS_SCRIPT_URL||cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_'))return Promise.reject(new Error('尚未設定 Apps Script URL'));return new Promise((resolve,reject)=>{const id=`r${Date.now()}_${rpcSeq++}`,frameName=`td_rpc_${id}`,iframe=document.createElement('iframe');iframe.name=frameName;iframe.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;left:-9999px;top:-9999px;';iframe.setAttribute('aria-hidden','true');document.body.appendChild(iframe);const form=document.createElement('form');form.method='POST';form.action=cfg.APPS_SCRIPT_URL;form.target=frameName;form.style.display='none';const rid=document.createElement('input');rid.type='hidden';rid.name='requestId';rid.value=id;form.appendChild(rid);const data=document.createElement('input');data.type='hidden';data.name='payload';data.value=JSON.stringify({action,token:token(),...payload});form.appendChild(data);document.body.appendChild(form);const timer=setTimeout(()=>{pendingRpc.delete(id);try{iframe.remove()}catch{}reject(new Error('Google Apps Script 回應逾時'))},cfg.REQUEST_TIMEOUT_MS||20000);pendingRpc.set(id,{resolve,reject,timer,iframe});try{form.submit()}catch(err){clearTimeout(timer);pendingRpc.delete(id);iframe.remove();reject(err)}finally{form.remove()}})}
-async function connectBackend(){showLogin();const st=$('#bridgeState');if(!cfg.APPS_SCRIPT_URL||cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){st.textContent='尚未設定 Apps Script URL';st.className='bridge-state bad';$('#loginError').textContent='請先修改 config.js 的 APPS_SCRIPT_URL。';return}try{await rpc('ping');backendReady=true;if($('#bridgeState')){$('#bridgeState').textContent='Google Drive 已連線';$('#bridgeState').className='bridge-state ok'}if($('#loginForm button[type="submit"]'))$('#loginForm button[type="submit"]').disabled=false;if(token()){try{const d=await rpc('me');me=d.user;showMain();await loadAll()}catch{setToken('')}}}catch(err){if($('#bridgeState')){$('#bridgeState').textContent='Google Drive 連線失敗';$('#bridgeState').className='bridge-state bad'}if($('#loginError'))$('#loginError').textContent=err.message}}
-function showLogin(){me=null;app.innerHTML='';app.append($('#loginTpl').content.cloneNode(true));if(backendReady){$('#bridgeState').textContent='Google Drive 已連線';$('#bridgeState').className='bridge-state ok';$('#loginForm button[type="submit"]').disabled=false}$('#loginForm').addEventListener('submit',async e=>{e.preventDefault();$('#loginError').textContent='';const fd=new FormData(e.currentTarget);try{const d=await rpc('login',{username:fd.get('username'),password:fd.get('password')});setToken(d.token);me=d.user;showMain();await loadAll()}catch(err){$('#loginError').textContent=err.message}})}
+async function connectBackend(){
+  // v1.4.1: opening / refreshing the site always returns to the login screen.
+  // Do not silently restore a previous local session.
+  setToken('');
+  showLogin();
+
+  const st=$('#bridgeState');
+  if(!cfg.APPS_SCRIPT_URL||cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){
+    st.textContent='尚未設定 Apps Script URL';
+    st.className='bridge-state bad';
+    $('#loginError').textContent='請先修改 config.js 的 APPS_SCRIPT_URL。';
+    return;
+  }
+
+  try{
+    await rpc('ping');
+    backendReady=true;
+    if($('#bridgeState')){
+      $('#bridgeState').textContent='Google Drive 已連線';
+      $('#bridgeState').className='bridge-state ok';
+    }
+    if($('#loginBtn'))$('#loginBtn').disabled=false;
+  }catch(err){
+    if($('#bridgeState')){
+      $('#bridgeState').textContent='Google Drive 連線失敗';
+      $('#bridgeState').className='bridge-state bad';
+    }
+    if($('#loginError'))$('#loginError').textContent=err.message;
+  }
+}
+
+function showLogin(){
+  me=null;
+  app.innerHTML='';
+  app.append($('#loginTpl').content.cloneNode(true));
+
+  const form=$('#loginForm');
+  const loginBtn=$('#loginBtn');
+
+  if(backendReady){
+    $('#bridgeState').textContent='Google Drive 已連線';
+    $('#bridgeState').className='bridge-state ok';
+    loginBtn.disabled=false;
+  }
+
+  // Prevent browser/password-manager implicit form submission.
+  form.addEventListener('submit',e=>e.preventDefault());
+
+  loginBtn.addEventListener('click',async()=>{
+    $('#loginError').textContent='';
+
+    const username=form.elements.username.value.trim();
+    const password=form.elements.password.value;
+
+    if(!username||!password){
+      $('#loginError').textContent='請輸入帳號與密碼後再按登入。';
+      return;
+    }
+
+    loginBtn.disabled=true;
+    try{
+      const d=await rpc('login',{username,password});
+      setToken(d.token);
+      me=d.user;
+      showMain();
+      await loadAll();
+    }catch(err){
+      $('#loginError').textContent=err.message;
+      loginBtn.disabled=false;
+    }
+  });
+}
+
 function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
-async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];renderMy();renderRequest();renderSchedule();if(me.role==='admin')renderAdmin()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
+async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];renderMy();renderRequest();renderSchedule()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
 function renderMy(){const el=$('#myView');if(!el)return;const pending=incoming.filter(x=>x.status==='pending').length,accepted=incoming.filter(x=>x.status==='accepted').length,completed=incoming.filter(x=>x.status==='completed').length,overdue=incoming.filter(x=>!['completed','rejected'].includes(x.status)&&daysToDue(x)<0).length;el.innerHTML=`<div class="page-header"><div><h1>我的工作</h1><div class="muted">查看待接受、已接單與已完成工作</div></div><div class="toolbar"><button class="primary" id="newSelfTask">＋新增自己的工作</button><div class="segmented"><button data-mode="list" class="${myMode==='list'?'active':''}">清單</button><button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button></div></div></div><div class="cards"><div class="stat"><div class="muted">待接受</div><div class="n">${pending}</div></div><div class="stat"><div class="muted">已接單</div><div class="n">${accepted}</div></div><div class="stat"><div class="muted">已完成</div><div class="n">${completed}</div></div><div class="stat"><div class="muted">已逾期</div><div class="n">${overdue}</div></div></div><div id="myBody"></div>`;$('#newSelfTask').onclick=()=>{$('#selfTaskForm').reset();$('#selfTaskForm [name="plannedHours"]').value='8';$('#selfTaskDialog').showModal()};$$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{myMode=b.dataset.mode;renderMy()}));myMode==='list'?renderMyList():renderCalendar()}
 async function handleSelfTask(e){e.preventDefault();const fd=new FormData(e.currentTarget);try{await rpc('createSelfTask',Object.fromEntries(fd));$('#selfTaskDialog').close();await loadAll();alert('自己的工作已建立，已自動接單')}catch(err){alert(err.message)}}
 function renderMyList(){const body=$('#myBody');const rows=incoming.map(t=>`<tr class="${colorClass(t)}"><td>${t.urgent?'<span class="urgent">!</span> ':''}<button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button>${t.selfAssigned?'<div class="mini">自己建立</div>':''}</td><td>${escapeHtml(t.requesterName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${taskActions(t)}</td></tr>`).join('');body.innerHTML=`<div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>操作</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">目前沒有工作</td></tr>'}</tbody></table></div>`;bindTaskActions(body)}
@@ -261,7 +332,6 @@ function bindCalendarInteractions(root){
       if(!source)return;
 
       const targetDate=day.dataset.calendarDate;
-      if(targetDate===source.workDate)return;
 
       const task=incoming.find(t=>String(t.id)===String(source.taskId));
       if(!task)return;
@@ -277,7 +347,10 @@ function bindCalendarInteractions(root){
         merge=confirm(`${fmtDate(targetDate)} 已有相同任務「${task.workType}」共 ${num(same.reduce((s,a)=>s+Number(a.hours||0),0))}h。
 
 按「確定」：把拖過來的 ${num(source.hours)}h 合併進同一區塊。
-按「取消」：仍移到 ${fmtDate(targetDate)}，但保留為兩個獨立區塊。`);
+按「取消」：${targetDate===source.workDate?'不做任何變更':'仍移到 '+fmtDate(targetDate)+'，但保留為兩個獨立區塊'}。`);
+        if(targetDate===source.workDate&&!merge)return;
+      }else if(targetDate===source.workDate){
+        return;
       }
 
       try{
@@ -290,12 +363,60 @@ function bindCalendarInteractions(root){
   });
 }
 
-function renderRequest(){const el=$('#requestView');if(!el)return;const options=users.filter(u=>u.id!==me.id&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)} (${escapeHtml(u.username)})</option>`).join(''),rows=outgoing.filter(t=>!t.selfAssigned).map(t=>`<tr><td><button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button></td><td>${escapeHtml(t.assigneeName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${t.rejectionReason?escapeHtml(t.rejectionReason):'-'}</td></tr>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請別人協助</h1><div class="muted">建立派工前會檢查對方 Loading、請假與出差</div></div></div><div class="request-grid"><form id="createTaskForm" class="form-card"><h3>新增派工</h3><label>被派工者<select name="assigneeId" required><option value="">請選擇</option>${options}</select></label><label>工作類型<input name="workType" placeholder="自由輸入，例如：資料整理" required></label><label>需求內容<textarea name="content" rows="5" required></textarea></label><label>需求日期<input type="date" name="requestDate" required></label><label>預估工時（小時）<input type="number" name="plannedHours" min="0.25" max="999" step="0.25" value="8" required></label><div id="availabilityHint" class="hint-box">選擇被派工者、需求日期與預估工時後，系統會檢查行事曆。</div><button class="primary" type="submit">送出派工</button></form><div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>被派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>拒絕理由</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">尚未建立派工</td></tr>'}</tbody></table></div></div>`;const form=$('#createTaskForm');['assigneeId','requestDate','plannedHours'].forEach(n=>form.elements[n].addEventListener('change',()=>scheduleAvailabilityCheck(form)));form.elements.plannedHours.addEventListener('input',()=>scheduleAvailabilityCheck(form));form.addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),payload=Object.fromEntries(fd);try{const check=await rpc('checkAvailability',payload);if(check.hasWarning&&!confirm(availabilityConfirmText(check)))return;await rpc('createTask',payload);e.currentTarget.reset();e.currentTarget.elements.plannedHours.value='8';lastAvailability=null;await loadAll();alert('派工已送出')}catch(err){alert(err.message)}});$$('[data-detail]',el).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)))}
+function renderRequest(){const el=$('#requestView');if(!el)return;const options=users.filter(u=>u.id!==me.id&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)} (${escapeHtml(u.username)})</option>`).join(''),rows=outgoing.filter(t=>!t.selfAssigned).map(t=>`<tr><td><button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button></td><td>${escapeHtml(t.assigneeName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${t.rejectionReason?escapeHtml(t.rejectionReason):'-'}</td></tr>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請別人協助</h1><div class="muted">建立派工前會檢查對方 Loading、請假與出差</div></div></div><div class="request-grid"><form id="createTaskForm" class="form-card"><h3>新增派工</h3><label>被派工者<select name="assigneeId" required><option value="">請選擇</option>${options}</select></label><label>工作類型<input name="workType" placeholder="自由輸入，例如：資料整理" required></label><label>需求內容<textarea name="content" rows="5" required></textarea></label><label>需求日期<input type="date" name="requestDate" required></label><label>預估工時（小時）<input type="number" name="plannedHours" min="0.25" max="999" step="0.25" value="8" required></label><div id="availabilityHint" class="hint-box">選擇被派工者、需求日期與預估工時後，系統會檢查行事曆。</div><button class="primary" type="submit">送出派工</button></form><div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>被派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>拒絕理由</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">尚未建立派工</td></tr>'}</tbody></table></div></div>`;const form=$('#createTaskForm');['assigneeId','requestDate','plannedHours'].forEach(n=>form.elements[n].addEventListener('change',()=>scheduleAvailabilityCheck(form)));form.elements.plannedHours.addEventListener('input',()=>scheduleAvailabilityCheck(form));form.addEventListener('submit',async e=>{e.preventDefault();const taskForm=e.currentTarget;const fd=new FormData(taskForm),payload=Object.fromEntries(fd);try{const check=await rpc('checkAvailability',payload);if(check.hasWarning&&!confirm(availabilityConfirmText(check)))return;await rpc('createTask',payload);taskForm.reset();taskForm.elements.plannedHours.value='8';lastAvailability=null;await loadAll();alert('派工已送出')}catch(err){alert(err.message)}});$$('[data-detail]',el).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)))}
 function scheduleAvailabilityCheck(form){clearTimeout(availabilityTimer);availabilityTimer=setTimeout(()=>checkAvailabilityUI(form),450)}async function checkAvailabilityUI(form){const hint=$('#availabilityHint');if(!hint)return;const assigneeId=form.elements.assigneeId.value,requestDate=form.elements.requestDate.value,plannedHours=form.elements.plannedHours.value;if(!assigneeId||!requestDate||!plannedHours){hint.className='hint-box';hint.textContent='選擇被派工者、需求日期與預估工時後，系統會檢查行事曆。';return}hint.className='hint-box';hint.textContent='正在檢查行事曆…';try{const d=await rpc('checkAvailability',{assigneeId,requestDate,plannedHours});lastAvailability=d;hint.className=`hint-box ${d.hasWarning?'warn':'ok'}`;hint.innerHTML=availabilityHtml(d)}catch(e){hint.className='hint-box warn';hint.textContent=e.message}}
 function availabilityHtml(d){const lines=[`預估期間最高 Loading：<strong>${Math.round(d.peakLoadPct)}%</strong>`];if(d.highLoadDates?.length)lines.push(`Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' ('+Math.round(x.loadPct)+'%)').join('、')}`);if(d.leaves?.length)lines.push(`請假：${d.leaves.map(x=>escapeHtml(x.leaveType)+' '+fmtLocalDateTime(x.startDateTime)+'～'+fmtLocalDateTime(x.endDateTime)).join('；')}`);if(d.trips?.length)lines.push(`出差：${d.trips.map(x=>escapeHtml(x.purpose)+' '+fmtDate(x.startDate)+'～'+fmtDate(x.endDate)).join('；')}`);if(!d.hasWarning)lines.push('此期間目前沒有 Loading > 80%、請假或出差衝突。');return lines.map(x=>`<div class="hint-line">${x}</div>`).join('')}function availabilityConfirmText(d){const parts=['被派工者的行事曆有以下提示：'];if(d.highLoadDates?.length)parts.push(`• Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' '+Math.round(x.loadPct)+'%').join('、')}`);if(d.leaves?.length)parts.push(`• 有 ${d.leaves.length} 筆請假`);if(d.trips?.length)parts.push(`• 有 ${d.trips.length} 筆出差`);parts.push('仍要送出派工嗎？');return parts.join('\n')}
-function renderSchedule(){const el=$('#scheduleView');if(!el)return;const leaveRows=myLeaves.map(x=>`<div class="record-card leave"><div><div class="record-title">${escapeHtml(x.leaveType)}</div><div>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div><div class="mini">只計入週一至週五工作日</div></div><button class="ghost" data-del-leave="${x.id}">刪除</button></div>`).join(''),tripRows=myTrips.map(x=>`<div class="record-card trip"><div><div class="record-title">${escapeHtml(x.purpose)}</div><div>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</div><div class="mini">以天為顆粒度，只計入週一至週五</div></div><button class="ghost" data-del-trip="${x.id}">刪除</button></div>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請假／出差設定</h1><div class="muted">請假可精確到分鐘；出差以天為單位</div></div></div><div class="schedule-grid"><form id="leaveForm" class="form-card"><h3>新增請假</h3><label>假別<input name="leaveType" list="leaveTypes" placeholder="例如：特休" required><datalist id="leaveTypes"><option value="特休"><option value="事假"><option value="病假"><option value="公假"><option value="其他"></datalist></label><label>開始時間<input type="datetime-local" name="startDateTime" step="60" required></label><label>結束時間<input type="datetime-local" name="endDateTime" step="60" required></label><button class="primary">新增請假</button></form><form id="tripForm" class="form-card"><h3>新增出差</h3><label>目的<textarea name="purpose" rows="3" placeholder="例如：台中工廠 UAT Workshop" required></textarea></label><label>開始日期<input type="date" name="startDate" required></label><label>結束日期<input type="date" name="endDate" required></label><button class="primary">新增出差</button></form></div><div class="schedule-grid"><div class="panel panel-pad"><h3>我的請假</h3><div class="record-list">${leaveRows||'<div class="empty">尚無請假紀錄</div>'}</div></div><div class="panel panel-pad"><h3>我的出差</h3><div class="record-list">${tripRows||'<div class="empty">尚無出差紀錄</div>'}</div></div></div>`;$('#leaveForm').addEventListener('submit',async e=>{e.preventDefault();try{await rpc('createLeave',Object.fromEntries(new FormData(e.currentTarget)));e.currentTarget.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$('#tripForm').addEventListener('submit',async e=>{e.preventDefault();try{await rpc('createTrip',Object.fromEntries(new FormData(e.currentTarget)));e.currentTarget.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$$('[data-del-leave]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此請假紀錄？'))return;try{await rpc('deleteLeave',{id:b.dataset.delLeave});await loadAll();renderSchedule()}catch(e){alert(e.message)}});$$('[data-del-trip]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此出差紀錄？'))return;try{await rpc('deleteTrip',{id:b.dataset.delTrip});await loadAll();renderSchedule()}catch(e){alert(e.message)}})}
+function renderSchedule(){const el=$('#scheduleView');if(!el)return;const leaveRows=myLeaves.map(x=>`<div class="record-card leave"><div><div class="record-title">${escapeHtml(x.leaveType)}</div><div>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div><div class="mini">只計入週一至週五工作日</div></div><button class="ghost" data-del-leave="${x.id}">刪除</button></div>`).join(''),tripRows=myTrips.map(x=>`<div class="record-card trip"><div><div class="record-title">${escapeHtml(x.purpose)}</div><div>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</div><div class="mini">以天為顆粒度，只計入週一至週五</div></div><button class="ghost" data-del-trip="${x.id}">刪除</button></div>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請假／出差設定</h1><div class="muted">請假可精確到分鐘；出差以天為單位</div></div></div><div class="schedule-grid"><form id="leaveForm" class="form-card"><h3>新增請假</h3><label>假別<input name="leaveType" list="leaveTypes" placeholder="例如：特休" required><datalist id="leaveTypes"><option value="特休"><option value="事假"><option value="病假"><option value="公假"><option value="其他"></datalist></label><label>開始時間<input type="datetime-local" name="startDateTime" step="60" required></label><label>結束時間<input type="datetime-local" name="endDateTime" step="60" required></label><button class="primary">新增請假</button></form><form id="tripForm" class="form-card"><h3>新增出差</h3><label>目的<textarea name="purpose" rows="3" placeholder="例如：台中工廠 UAT Workshop" required></textarea></label><label>開始日期<input type="date" name="startDate" required></label><label>結束日期<input type="date" name="endDate" required></label><button class="primary">新增出差</button></form></div><div class="schedule-grid"><div class="panel panel-pad"><h3>我的請假</h3><div class="record-list">${leaveRows||'<div class="empty">尚無請假紀錄</div>'}</div></div><div class="panel panel-pad"><h3>我的出差</h3><div class="record-list">${tripRows||'<div class="empty">尚無出差紀錄</div>'}</div></div></div>`;$('#leaveForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createLeave',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$('#tripForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createTrip',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$$('[data-del-leave]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此請假紀錄？'))return;try{await rpc('deleteLeave',{id:b.dataset.delLeave});await loadAll();renderSchedule()}catch(e){alert(e.message)}});$$('[data-del-trip]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此出差紀錄？'))return;try{await rpc('deleteTrip',{id:b.dataset.delTrip});await loadAll();renderSchedule()}catch(e){alert(e.message)}})}
 async function renderTeamCalendar(){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；請假日不分配 Loading，出差另行顯示</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);try{const d=await rpc('teamCalendar',{startDate:isoDate(teamStart),endDate:isoDate(end)});drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
-function drawTeamGantt(data){const wrap=$('#teamGantt');if(!wrap)return;const dates=data.dates||[],members=data.members||[],cols=`160px repeat(${dates.length}, minmax(78px,1fr))`;let html=`<div class="gantt" style="grid-template-columns:${cols}"><div class="gantt-cell gantt-head gantt-name">成員</div>`;dates.forEach(d=>{const dt=dateOnly(d);html+=`<div class="gantt-cell gantt-head ${[0,6].includes(dt.getDay())?'weekend':''}">${dt.getMonth()+1}/${dt.getDate()}<br>${['日','一','二','三','四','五','六'][dt.getDay()]}</div>`});members.forEach(m=>{html+=`<div class="gantt-cell gantt-name"><div>${escapeHtml(m.displayName)}</div><div class="mini">${escapeHtml(m.username)}</div></div>`;dates.forEach(d=>{const cell=m.days[d]||{loadPct:0,leaveLabels:[],tripLabels:[],workday:true};const cls=!cell.workday?'weekend':'';let chip='';if(cell.workday&&cell.loadPct>0){const c=cell.loadPct>100?'over':cell.loadPct>80?'high':'';chip=`<span class="load-chip ${c}">${Math.round(cell.loadPct)}%</span>`}const leaves=(cell.leaveLabels||[]).map(x=>`<div class="event-strip leave">假｜${escapeHtml(x)}</div>`).join(''),trips=(cell.tripLabels||[]).map(x=>`<div class="event-strip trip">出｜${escapeHtml(x)}</div>`).join('');html+=`<div class="gantt-cell ${cls}">${chip}${leaves}${trips}</div>`})});html+='</div>';wrap.innerHTML=html}
-async function renderAdmin(){if(me?.role!=='admin'||!$('#adminView'))return;let data;try{data=await rpc('adminListUsers')}catch(e){alert(e.message);return}const rows=data.users.map(u=>`<div class="admin-row" data-user-row="${u.id}"><input data-field="displayName" value="${attr(u.displayName)}"><input value="${attr(u.username)}" disabled><select data-field="role"><option value="user" ${u.role==='user'?'selected':''}>user</option><option value="admin" ${u.role==='admin'?'selected':''}>admin</option></select><label style="margin:0;display:flex;gap:6px;align-items:center"><input style="width:auto" type="checkbox" data-field="active" ${u.active?'checked':''} ${u.username==='admin'?'disabled':''}>啟用</label><button class="secondary" data-save-user="${u.id}">儲存</button><input data-field="password" type="password" placeholder="新密碼（留白不變）" style="grid-column:1/5"><span></span></div>`).join('');$('#adminView').innerHTML=`<div class="page-header"><div><h1>帳號管理</h1><div class="muted">建立帳號、設定角色、停用帳號或重設密碼</div></div></div><div class="admin-grid"><form id="createUserForm" class="form-card"><h3>新增帳號</h3><label>帳號<input name="username" required></label><label>顯示名稱<input name="displayName" required></label><label>密碼<input type="password" name="password" required></label><label>角色<select name="role"><option value="user">user</option><option value="admin">admin</option></select></label><button class="primary">建立</button></form><div class="panel panel-pad"><h3>現有帳號</h3>${rows}</div></div>`;$('#createUserForm').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget);try{await rpc('adminCreateUser',Object.fromEntries(fd));e.currentTarget.reset();await loadAll();renderAdmin()}catch(err){alert(err.message)}});$$('[data-save-user]').forEach(b=>b.addEventListener('click',async()=>{const row=$(`[data-user-row="${b.dataset.saveUser}"]`),body={userId:b.dataset.saveUser,displayName:$('[data-field="displayName"]',row).value,role:$('[data-field="role"]',row).value,active:$('[data-field="active"]',row).checked,password:$('[data-field="password"]',row).value};try{await rpc('adminUpdateUser',body);alert('已更新');await loadAll();renderAdmin()}catch(err){alert(err.message)}}))}
+function drawTeamGantt(data){
+  const wrap=$('#teamGantt');
+  if(!wrap)return;
+
+  const dates=data.dates||[];
+  const members=data.members||[];
+  const cols=`160px repeat(${dates.length}, minmax(78px,1fr))`;
+
+  let html=`<div class="gantt" style="grid-template-columns:${cols}">
+    <div class="gantt-cell gantt-head gantt-name">成員</div>`;
+
+  dates.forEach(d=>{
+    const dt=dateOnly(d);
+    html+=`<div class="gantt-cell gantt-head ${[0,6].includes(dt.getDay())?'weekend':''}">
+      ${dt.getMonth()+1}/${dt.getDate()}<br>${['日','一','二','三','四','五','六'][dt.getDay()]}
+    </div>`;
+  });
+
+  members.forEach(m=>{
+    html+=`<div class="gantt-cell gantt-name">
+      <div>${escapeHtml(m.displayName)}</div>
+      <div class="mini">${escapeHtml(m.username)}</div>
+    </div>`;
+
+    dates.forEach(d=>{
+      const cell=m.days[d]||{loadPct:0,leaveLabels:[],tripLabels:[],workday:true};
+      const cls=!cell.workday?'weekend':'';
+      const hasLeave=(cell.leaveLabels||[]).length>0;
+
+      let chip='';
+      if(cell.workday&&!hasLeave){
+        const pct=Math.max(0,Number(cell.loadPct)||0);
+        const c=pct>100?'over':pct>80?'high':'';
+        chip=`<span class="load-chip ${c}" title="Loading ${Math.round(pct)}%">${Math.round(pct)}%</span>`;
+      }
+
+      const leaves=(cell.leaveLabels||[])
+        .map(x=>`<div class="event-strip leave">假｜${escapeHtml(x)}</div>`).join('');
+      const trips=(cell.tripLabels||[])
+        .map(x=>`<div class="event-strip trip">出｜${escapeHtml(x)}</div>`).join('');
+
+      html+=`<div class="gantt-cell ${cls}">${chip}${leaves}${trips}</div>`;
+    });
+  });
+
+  html+='</div>';
+  wrap.innerHTML=html;
+}
+
+async function renderAdmin(){if(me?.role!=='admin'||!$('#adminView'))return;let data;try{data=await rpc('adminListUsers')}catch(e){alert(e.message);return}const rows=data.users.map(u=>`<div class="admin-row" data-user-row="${u.id}"><input data-field="displayName" value="${attr(u.displayName)}"><input value="${attr(u.username)}" disabled><select data-field="role"><option value="user" ${u.role==='user'?'selected':''}>user</option><option value="admin" ${u.role==='admin'?'selected':''}>admin</option></select><label style="margin:0;display:flex;gap:6px;align-items:center"><input style="width:auto" type="checkbox" data-field="active" ${u.active?'checked':''} ${u.username==='admin'?'disabled':''}>啟用</label><button class="secondary" data-save-user="${u.id}">儲存</button><input data-field="password" type="password" placeholder="新密碼（留白不變）" style="grid-column:1/5"><span></span></div>`).join('');$('#adminView').innerHTML=`<div class="page-header"><div><h1>帳號管理</h1><div class="muted">建立帳號、設定角色、停用帳號或重設密碼</div></div></div><div class="admin-grid"><form id="createUserForm" class="form-card"><h3>新增帳號</h3><label>帳號<input name="username" required></label><label>顯示名稱<input name="displayName" required></label><label>密碼<input type="password" name="password" required></label><label>角色<select name="role"><option value="user">user</option><option value="admin">admin</option></select></label><button class="primary">建立</button></form><div class="panel panel-pad"><h3>現有帳號</h3>${rows}</div></div>`;$('#createUserForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;const fd=new FormData(form);try{await rpc('adminCreateUser',Object.fromEntries(fd));form.reset();await loadAll();await renderAdmin()}catch(err){alert(err.message)}});$$('[data-save-user]').forEach(b=>b.addEventListener('click',async()=>{const row=$(`[data-user-row="${b.dataset.saveUser}"]`),body={userId:b.dataset.saveUser,displayName:$('[data-field="displayName"]',row).value,role:$('[data-field="role"]',row).value,active:$('[data-field="active"]',row).checked,password:$('[data-field="password"]',row).value};try{await rpc('adminUpdateUser',body);alert('已更新');await loadAll();renderAdmin()}catch(err){alert(err.message)}}))}
 function escapeHtml(v=''){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}function attr(v=''){return escapeHtml(v)}function num(v){const n=Number(v);return Number.isFinite(n)?(Math.round(n*100)/100):0}
 connectBackend();
