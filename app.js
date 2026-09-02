@@ -144,6 +144,7 @@ async function connectBackend(){
       $('#bridgeState').className='bridge-state ok';
     }
     if($('#loginBtn'))$('#loginBtn').disabled=false;
+    if($('#publicDashboardBtn'))$('#publicDashboardBtn').disabled=false;
   }catch(err){
     if($('#bridgeState')){
       $('#bridgeState').textContent='Google Drive 連線失敗';
@@ -165,7 +166,10 @@ function showLogin(){
     $('#bridgeState').textContent='Google Drive 已連線';
     $('#bridgeState').className='bridge-state ok';
     loginBtn.disabled=false;
+    $('#publicDashboardBtn').disabled=false;
   }
+
+  $('#publicDashboardBtn').addEventListener('click',showPublicDashboard);
 
   // Prevent browser/password-manager implicit form submission.
   form.addEventListener('submit',e=>e.preventDefault());
@@ -193,6 +197,106 @@ function showLogin(){
       loginBtn.disabled=false;
     }
   });
+}
+
+
+async function showPublicDashboard(){
+  // Public dashboard is intentionally independent from authentication.
+  // Clear any residual local token before entering this read-only surface.
+  setToken('');
+  me=null;
+  app.innerHTML='';
+  app.append($('#dashboardTpl').content.cloneNode(true));
+
+  $('#dashboardBackLogin').addEventListener('click',showLogin);
+  $('#dashboardRefresh').addEventListener('click',loadPublicDashboard);
+
+  await loadPublicDashboard();
+}
+
+async function loadPublicDashboard(){
+  const state=$('#dashboardState');
+  const content=$('#dashboardContent');
+  const refresh=$('#dashboardRefresh');
+
+  if(!state||!content)return;
+
+  state.className='dashboard-state';
+  state.innerHTML='<div class="loading-spinner" aria-hidden="true"></div><span>正在讀取目前任務…</span>';
+  content.classList.add('hidden');
+  if(refresh)refresh.disabled=true;
+
+  try{
+    const d=await rpc('publicDashboard');
+    renderPublicDashboard(d);
+    state.classList.add('hidden');
+    content.classList.remove('hidden');
+  }catch(err){
+    state.className='dashboard-state error-state';
+    state.innerHTML=`<strong>儀表板讀取失敗</strong><span>${escapeHtml(err.message)}</span>`;
+  }finally{
+    if(refresh)refresh.disabled=false;
+  }
+}
+
+function renderPublicDashboard(d){
+  $('#dashboardGeneratedAt').textContent=fmtDateTime(d.generatedAt);
+  $('#dashboardWeekRange').textContent=`工作週 ${fmtDate(d.weekStart)} ～ ${fmtDate(d.weekEnd)}`;
+  $('#dashboardHorizonRange').textContent=`${fmtDate(d.today)} ～ ${fmtDate(d.horizonEnd)} · 依剩餘工作量由高到低排序`;
+
+  const week=d.currentWeekTasks||[];
+  const future=d.next15DaysTasks||[];
+
+  $('#dashboardWeekCount').textContent=`${week.length} 件`;
+  $('#dashboardFutureCount').textContent=`${future.length} 件`;
+
+  $('#dashboardWeekTasks').innerHTML=dashboardTaskTable(week,'week');
+  $('#dashboardFutureTasks').innerHTML=dashboardTaskTable(future,'future');
+}
+
+function dashboardTaskTable(tasks,mode){
+  if(!tasks.length){
+    return `<div class="dashboard-empty">${mode==='week'?'本工作週沒有未結任務。':'未來 15 天沒有到期的未結任務。'}</div>`;
+  }
+
+  const workloadLabel=mode==='week'?'本週排程':'剩餘工作量';
+
+  return `<div class="panel table-scroll dashboard-table-wrap">
+    <table class="dashboard-table">
+      <thead>
+        <tr>
+          <th>任務</th>
+          <th>負責人</th>
+          <th>狀態</th>
+          <th>需求日</th>
+          <th>${workloadLabel}</th>
+          <th>預估總工時</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tasks.map(t=>{
+          const workload=mode==='week'
+            ? (t.status==='pending'?t.plannedHours:t.weekHours)
+            : t.remainingHours;
+
+          return `<tr class="${t.urgent?'dashboard-urgent-row':''}">
+            <td>
+              <div class="dashboard-task-name">
+                ${t.urgent?'<span class="urgent">!</span>':''}
+                <strong>${escapeHtml(t.workType)}</strong>
+              </div>
+              ${t.selfAssigned?'<div class="mini">自己建立</div>':''}
+            </td>
+            <td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td>
+            <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
+            <td>${fmtDate(t.requestDate)}</td>
+            <td><strong>${num(workload)}h</strong></td>
+            <td>${num(t.plannedHours)}h</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
 }
 
 function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}

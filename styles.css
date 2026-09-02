@@ -96,3 +96,145 @@ dialog{border:0;border-radius:16px;padding:0;box-shadow:0 18px 80px rgba(0,0,0,.
   padding:10px 0;
   border-bottom:1px solid #edf2f4;
 }
+
+/* v1.6 public read-only dashboard */
+.dashboard-entry{
+  width:100%;
+  margin-top:10px;
+  border:1px solid #bcd8e7;
+  background:#fff;
+  color:#347b9f;
+  border-radius:10px;
+  padding:10px 15px;
+  font-weight:800;
+}
+.dashboard-entry:hover{background:#f1f9fd}
+.dashboard-entry:disabled{opacity:.45;cursor:not-allowed}
+
+.public-dashboard-shell{
+  max-width:1380px;
+  margin:0 auto;
+  padding:30px;
+}
+.public-dashboard-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:24px;
+  margin-bottom:20px;
+}
+.public-dashboard-header h1{
+  margin:4px 0 6px;
+  font-size:30px;
+}
+.dashboard-eyebrow{
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.11em;
+  color:#4a8baa;
+}
+.dashboard-header-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.dashboard-state{
+  min-height:130px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  color:var(--muted);
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:16px;
+}
+.dashboard-state.error-state{
+  flex-direction:column;
+  color:#9b4050;
+  background:#fff7f8;
+}
+.dashboard-meta{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  padding:13px 15px;
+  margin-bottom:18px;
+  background:#edf7fb;
+  border:1px solid #d6e9f2;
+  border-radius:14px;
+}
+.dashboard-meta>div:first-child{
+  display:grid;
+  gap:2px;
+}
+.dashboard-security-note{
+  color:#5f7783;
+  font-size:13px;
+  text-align:right;
+}
+.dashboard-section{
+  margin-top:20px;
+}
+.dashboard-section-head{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:10px;
+}
+.dashboard-section-head h2{
+  margin:0 0 4px;
+  font-size:21px;
+}
+.dashboard-count{
+  font-size:13px;
+  font-weight:900;
+  color:#367a9b;
+  background:#e7f4fa;
+  border-radius:999px;
+  padding:5px 10px;
+  white-space:nowrap;
+}
+.dashboard-table-wrap{
+  overflow:auto;
+}
+.dashboard-table{
+  min-width:780px;
+}
+.dashboard-task-name{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+.assignee-pill{
+  display:inline-flex;
+  align-items:center;
+  border-radius:999px;
+  padding:5px 9px;
+  background:#edf3f6;
+  font-weight:800;
+  white-space:nowrap;
+}
+.dashboard-urgent-row td:first-child{
+  border-left:4px solid #ef5164;
+}
+.dashboard-empty{
+  padding:30px;
+  text-align:center;
+  color:var(--muted);
+  background:#fff;
+  border:1px dashed #cfdce2;
+  border-radius:14px;
+}
+@media(max-width:720px){
+  .public-dashboard-shell{padding:18px}
+  .public-dashboard-header,
+  .dashboard-meta,
+  .dashboard-section-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .dashboard-security-note{text-align:left}
+}

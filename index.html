@@ -30,8 +30,67 @@
           <label>帳號<input name="username" autocomplete="off" required></label>
           <label>密碼<input type="password" name="password" autocomplete="off" required></label>
           <button class="primary" id="loginBtn" type="button" disabled>登入</button>
+          <button class="dashboard-entry" id="publicDashboardBtn" type="button" disabled>
+            不登入，檢視任務儀表板
+          </button>
           <div id="loginError" class="error"></div>
         </form>
+      </section>
+    </main>
+  </template>
+
+
+  <template id="dashboardTpl">
+    <main class="public-dashboard-shell">
+      <header class="public-dashboard-header">
+        <div>
+          <div class="dashboard-eyebrow">PUBLIC · READ ONLY</div>
+          <h1>任務儀表板</h1>
+          <p class="muted">免登入檢視目前團隊未結任務，不提供任何修改功能。</p>
+        </div>
+        <div class="dashboard-header-actions">
+          <button class="ghost" id="dashboardRefresh" type="button">重新整理</button>
+          <button class="secondary" id="dashboardBackLogin" type="button">返回登入</button>
+        </div>
+      </header>
+
+      <div id="dashboardState" class="dashboard-state">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <span>正在讀取目前任務…</span>
+      </div>
+
+      <section id="dashboardContent" class="hidden">
+        <div class="dashboard-meta">
+          <div>
+            <span class="mini">資料更新時間</span>
+            <strong id="dashboardGeneratedAt">-</strong>
+          </div>
+          <div class="dashboard-security-note">
+            此頁不需登入，因此僅顯示工作類型與排程資訊，不公開需求內容。
+          </div>
+        </div>
+
+        <section class="dashboard-section">
+          <div class="dashboard-section-head">
+            <div>
+              <h2>本週未結任務</h2>
+              <div id="dashboardWeekRange" class="muted"></div>
+            </div>
+            <div id="dashboardWeekCount" class="dashboard-count"></div>
+          </div>
+          <div id="dashboardWeekTasks"></div>
+        </section>
+
+        <section class="dashboard-section">
+          <div class="dashboard-section-head">
+            <div>
+              <h2>未來 15 天任務</h2>
+              <div id="dashboardHorizonRange" class="muted">依剩餘工作量由高到低排序</div>
+            </div>
+            <div id="dashboardFutureCount" class="dashboard-count"></div>
+          </div>
+          <div id="dashboardFutureTasks"></div>
+        </section>
       </section>
     </main>
   </template>
