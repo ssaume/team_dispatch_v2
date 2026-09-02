@@ -34,6 +34,8 @@
         <nav>
           <button data-view="my" class="nav-btn active">我的工作</button>
           <button data-view="request" class="nav-btn">請別人協助</button>
+          <button data-view="schedule" class="nav-btn">請假／出差</button>
+          <button data-view="team" class="nav-btn">團隊出勤</button>
           <button data-view="admin" id="adminNav" class="nav-btn hidden">帳號管理</button>
         </nav>
         <div class="user-box">
@@ -45,32 +47,36 @@
       <main class="content">
         <section id="myView" class="view"></section>
         <section id="requestView" class="view hidden"></section>
+        <section id="scheduleView" class="view hidden"></section>
+        <section id="teamView" class="view hidden"></section>
         <section id="adminView" class="view hidden"></section>
       </main>
     </div>
 
     <dialog id="taskDialog">
       <form method="dialog" class="dialog-card">
-        <div class="dialog-header">
-          <h3>工作內容</h3>
-          <button value="cancel" class="icon-btn">×</button>
-        </div>
+        <div class="dialog-header"><h3>工作內容</h3><button value="cancel" class="icon-btn">×</button></div>
         <div id="taskDetail"></div>
+      </form>
+    </dialog>
+
+    <dialog id="selfTaskDialog">
+      <form id="selfTaskForm" class="dialog-card">
+        <div class="dialog-header"><h3>新增自己的工作</h3><button type="button" id="selfTaskClose" class="icon-btn">×</button></div>
+        <label>工作類型<input name="workType" placeholder="自由輸入，例如：資料整理" required></label>
+        <label>需求內容<textarea name="content" rows="5" required></textarea></label>
+        <label>需求日期<input type="date" name="requestDate" required></label>
+        <label>預估工時（小時）<input type="number" name="plannedHours" min="0.25" max="999" step="0.25" value="8" required></label>
+        <div class="dialog-actions"><button type="button" id="selfTaskCancel" class="ghost">取消</button><button type="submit" class="primary">建立工作</button></div>
       </form>
     </dialog>
 
     <dialog id="rejectDialog">
       <form id="rejectForm" method="dialog" class="dialog-card">
-        <div class="dialog-header">
-          <h3>拒絕工作</h3>
-          <button value="cancel" class="icon-btn">×</button>
-        </div>
+        <div class="dialog-header"><h3>拒絕工作</h3><button value="cancel" class="icon-btn">×</button></div>
         <input type="hidden" name="task_id">
         <label>拒絕理由<textarea name="reason" rows="4" required></textarea></label>
-        <div class="dialog-actions">
-          <button type="button" id="rejectCancel" class="ghost">取消</button>
-          <button type="submit" class="danger">確認拒絕</button>
-        </div>
+        <div class="dialog-actions"><button type="button" id="rejectCancel" class="ghost">取消</button><button type="submit" class="danger">確認拒絕</button></div>
       </form>
     </dialog>
   </template>

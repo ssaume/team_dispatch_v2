@@ -1,315 +1,52 @@
-# v1.2 升級說明
-
-v1.1 的長駐 iframe Bridge 會受到 Google Apps Script HTML Service 自己的 sandbox iframe 影響。
-v1.2 改為 GitHub Pages 使用隱藏表單 POST 到 Apps Script，Apps Script 完成資料操作後再用
-`window.top.postMessage()` 將結果送回 GitHub Pages。
-
-## 已部署 v1.1 的升級步驟
-
-1. Apps Script：將 `Code.gs` 全部換成 v1.2 的 `apps-script/Code.gs`
-2. Apps Script：新增 HTML 檔 `Response`，貼入 `apps-script/Response.html`
-3. 原本 `Bridge.html` 可以留著，不再使用
-4. Apps Script：部署 → 管理部署作業 → 編輯 → 新版本 → 部署
-5. GitHub：將根目錄的 `index.html`、`app.js`、`styles.css` 更新成 v1.2
-6. `config.js` 保留你目前正確的 `/exec` URL
-7. Commit 到 `main`
-8. GitHub Pages 部署完成後按 Ctrl+F5
-9. 正常畫面應由「正在連線 Google Drive…」變成「Google Drive 已連線」
-
-
-
-# Team Dispatch — GitHub Pages + Google Drive
-
-此版本將前端部署在 **GitHub Pages**，後端資料放在 **Google Sheets / Google Drive**，並以 **Google Apps Script** 執行登入、權限與任務資料操作。
-
-## 架構
-
-```text
-GitHub Pages
-  index.html / app.js / styles.css
-          │
-          │ postMessage
-          ▼
-Google Apps Script Web App (hidden iframe bridge)
-          │
-          │ google.script.run
-          ▼
-Google Sheets
-  ├─ Users
-  ├─ Tasks
-  └─ Sessions
-       ↓
-Google Drive
-```
-
-這樣做的原因是 GitHub Pages 本身只有靜態 HTML/CSS/JS，無法安全保存多人共用帳號與任務資料。
-Apps Script Web App 與 GitHub Pages 直接 fetch 也可能碰到跨網域 / redirect 問題，因此此版本使用 iframe bridge + `postMessage`。
-
----
-
-# A. 建立 Google Drive 後端
-
-## 1. 建立 Google Sheet
-
-在 Google Drive 新增一份 Google 試算表，例如：
-
-`Team Dispatch DB`
-
-## 2. 開啟 Apps Script
-
-試算表：
-
-`擴充功能 → Apps Script`
-
-把預設 `Code.gs` 全部刪除，貼上本專案：
-
-`apps-script/Code.gs`
-
-再新增 HTML 檔：
-
-`Bridge`
-
-把：
-
-`apps-script/Bridge.html`
-
-貼進去。
-
-如果需要 manifest，可在 Apps Script 專案設定中顯示 `appsscript.json`，內容使用本專案提供的版本。
-
-## 3. 初始化資料庫
-
-回到 Google Sheet 並重新整理。
-
-功能表會出現：
-
-`Team Dispatch`
-
-選：
-
-`Team Dispatch → 初始化 / 修復資料表`
-
-初始化時也會自動記錄這份 Google Sheet 的 Spreadsheet ID，讓 Web App 執行時能固定讀寫正確資料庫。
-
-系統會建立：
-
-- Users
-- Tasks
-- Sessions
-
-預設管理員：
-
-- 帳號：`admin`
-- 密碼：`deltatwv2`
-
-**第一次登入後務必修改密碼。**
-
-## 4. 部署 Apps Script Web App
-
-Apps Script：
-
-`部署 → 新增部署作業 → 網頁應用程式`
-
-建議：
-
-- 執行身分：**我**
-- 存取權：**任何人**
-
-部署後取得：
-
-`https://script.google.com/macros/s/.../exec`
-
-保存此 URL。
-
-> 「任何人」是為了讓 GitHub Pages 能載入 bridge；真正資料操作仍需 Team Dispatch 帳密及 Session Token。
-
----
-
-# B. 設定 GitHub 前端
-
-## 1. 修改 config.js
-
-把：
-
-```js
-APPS_SCRIPT_URL: "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE"
-```
-
-改成剛才 Apps Script 的 `/exec` URL。
-
-## 2. Push 到 GitHub repository
-
-Repository 根目錄應包含：
-
-```text
-index.html
-app.js
-styles.css
-config.js
-.nojekyll
-```
-
-`apps-script/` 可以一起保留在 repository，方便版本管理，不會被前端執行。
-
-## 3. 啟用 GitHub Pages
-
-GitHub Repository：
-
-`Settings → Pages`
-
-Build and deployment：
-
-- Source: `Deploy from a branch`
-- Branch: `main`
-- Folder: `/(root)`
-
-儲存後會得到類似：
-
-`https://YOUR_NAME.github.io/YOUR_REPOSITORY/`
-
----
-
-# C. 限制 Apps Script 只接受你的 GitHub 網站
-
-知道 GitHub Pages URL 後，取它的 **Origin**。
-
-例如網站是：
-
-`https://evon.github.io/team-dispatch/`
-
-Origin 是：
-
-`https://evon.github.io`
-
-回 Google Sheet：
-
-`Team Dispatch → 設定 GitHub Pages 網址`
-
-輸入：
-
-`https://evon.github.io`
-
-**不要輸入 `/team-dispatch/` 路徑。**
-
-若使用自訂網域：
-
-`https://dispatch.example.com`
-
-就輸入該 Origin。
-
-設定後 Apps Script bridge 只接受該網站的 `postMessage`。
-
----
-
-# D. 使用方式
-
-開 GitHub Pages 網址。
-
-第一次登入：
-
-```text
-admin
-deltatwv2
-```
-
-到：
-
-`帳號管理`
-
-建立團隊成員。
-
-目前具備：
-
-- 帳號 / 密碼登入
-- admin / user 權限
-- 新增團隊帳號
-- 啟用 / 停用
-- 重設密碼
-- 指派工作給其他人
-- 工作類型自由輸入
-- 需求內容
-- 需求日期
-- 待接受工作
-- 接受 / 拒絕
-- 拒絕理由
-- 接單者標示緊急
-- 接單者完成工作
-- 派工者查看狀態及拒絕理由
-- 個人工作清單
-- 個人工作週日曆
-- 接單日 → 需求日期間表達
-
-顏色：
-
-- 已完成：灰
-- Due Date > 2 天：粉綠
-- Due Date 0–2 天：粉橘
-- 已超過 Due Date：粉紅
-- 緊急：紅色 `!`
-
----
-
-# E. 資料表
-
-## Users
-
-```text
-id
-username
-displayName
-passwordHash
-salt
-role
-active
-createdAt
-```
-
-密碼不以明碼保存。
-
-## Tasks
-
-```text
-id
-requesterId
-assigneeId
-workType
-content
-requestDate
-status
-rejectionReason
-urgent
-createdAt
-acceptedAt
-completedAt
-updatedAt
-```
-
-## Sessions
-
-```text
-token
-userId
-expiresAt
-createdAt
-```
-
-Session 預設 12 小時。
-
----
-
-# F. 注意事項
-
-此架構適合：
-
-- 小型 / 中小型內部團隊
-- MVP
-- 數十人等級
-- 低到中等頻率派工作業
-
-不建議當成：
-
-- 大型企業核心系統
-- 高併發交易系統
-- 存放高度機敏資料的正式 IAM 系統
-
-若未來使用量提高，可保留 GitHub Pages 前端，將後端從 Apps Script / Sheets 換成 Cloud Run + Cloud SQL / Firebase / Supabase，而 UI 不必重做。
+# Team Dispatch v1.3
+
+## 新增功能
+
+- 派工給自己：在「我的工作」使用「新增自己的工作」，建立後直接為已接單，不經審核。
+- 所有新工作新增「預估工時（小時）」欄位，作為 Loading 計算基礎。
+- 請假設定：假別、開始與結束時間，精確到分鐘，只計週一至週五。
+- 出差設定：目的、開始與結束日期，以天為顆粒度，只計週一至週五。
+- 團隊出勤：14 天甘特式檢視，顯示每人每日 Loading、請假、出差。
+- 請別人協助：選擇成員與 Due Date 後，自動檢查 Loading > 80%、請假、出差並提示；送出前再次確認。
+
+## Loading 規則（v1.3 MVP）
+
+- 標準產能：8 小時／工作日。
+- 工作日：週一至週五；目前尚未納入國定假日 / 公司行事曆。
+- 已接單且未完成的工作納入 Loading。
+- 預估工時平均分配到「接單日 → 需求日」之間的工作日。
+- 派工前的模擬，則把新工作的預估工時平均分配到「今天 → 需求日」。
+- 每日 Loading = 當日分配工時 ÷ 8 小時。
+- 超過 80% 才觸發高 Loading 警示。
+- 舊版既有工作沒有預估工時時，暫以總計 8 小時計算。
+- 請假與出差目前作為獨立衝突提示，不直接改寫 Loading 百分比。
+
+## 從 v1.2 升級（重要）
+
+1. Apps Script 將 `Code.gs` 全部替換為 v1.3 的 `apps-script/Code.gs`。
+2. `Response.html` 保留 v1.2 目前版本，不必修改。
+3. 回到 Google Sheet，重新整理頁面。
+4. 執行：`Team Dispatch → 初始化 / 修復資料表`。
+   - 這一步會新增 `Leaves`、`Trips` 工作表。
+   - 也會在既有 `Tasks` 表最後加入 `plannedHours`、`selfAssigned` 欄位。
+   - 不會刪除既有 Users / Tasks 資料。
+5. Apps Script：`部署 → 管理部署作業 → 編輯 → 新版本 → 部署`。
+6. GitHub 更新根目錄：`index.html`、`app.js`、`styles.css`。
+7. **保留你目前 GitHub 上已設定正確 `/exec` URL 的 `config.js`，不要用 ZIP 裡的 placeholder 覆蓋。**
+8. Commit 到 `main`，等待 GitHub Pages 部署完成。
+9. 瀏覽器 `Ctrl + F5` 強制重新整理。
+
+## Google Sheet 新增資料表
+
+### Leaves
+`id, userId, leaveType, startDateTime, endDateTime, createdAt`
+
+### Trips
+`id, userId, purpose, startDate, endDate, createdAt`
+
+### Tasks 新增欄位
+`plannedHours, selfAssigned`
+
+## 注意
+
+此版本將「工作日」定義為週一至週五。若後續要精準對應台灣國定假日、補班日、公司行事曆或每人不同工時，可再新增 Calendar / Capacity 設定表。
