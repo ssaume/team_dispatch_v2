@@ -71,6 +71,32 @@
       </form>
     </dialog>
 
+
+    <dialog id="splitAllocationDialog">
+      <form id="splitAllocationForm" class="dialog-card">
+        <div class="dialog-header">
+          <h3>分拆日曆任務</h3>
+          <button type="button" id="splitAllocationClose" class="icon-btn">×</button>
+        </div>
+        <input type="hidden" name="allocationId">
+        <div id="splitAllocationSummary" class="split-summary"></div>
+        <label>
+          移至目標日的比例（%）
+          <input type="number" name="movePercent" min="1" max="99" step="1" value="50" required>
+        </label>
+        <div id="splitAllocationPreview" class="hint-box"></div>
+        <label>
+          分拆目標日
+          <input type="date" name="targetDate" required>
+        </label>
+        <div id="splitTargetHint" class="mini"></div>
+        <div class="dialog-actions">
+          <button type="button" id="splitAllocationCancel" class="ghost">取消</button>
+          <button type="submit" class="primary">確認分拆</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="rejectDialog">
       <form id="rejectForm" method="dialog" class="dialog-card">
         <div class="dialog-header"><h3>拒絕工作</h3><button value="cancel" class="icon-btn">×</button></div>
