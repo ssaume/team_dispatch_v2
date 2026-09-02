@@ -1,3 +1,23 @@
+# v1.2 升級說明
+
+v1.1 的長駐 iframe Bridge 會受到 Google Apps Script HTML Service 自己的 sandbox iframe 影響。
+v1.2 改為 GitHub Pages 使用隱藏表單 POST 到 Apps Script，Apps Script 完成資料操作後再用
+`window.top.postMessage()` 將結果送回 GitHub Pages。
+
+## 已部署 v1.1 的升級步驟
+
+1. Apps Script：將 `Code.gs` 全部換成 v1.2 的 `apps-script/Code.gs`
+2. Apps Script：新增 HTML 檔 `Response`，貼入 `apps-script/Response.html`
+3. 原本 `Bridge.html` 可以留著，不再使用
+4. Apps Script：部署 → 管理部署作業 → 編輯 → 新版本 → 部署
+5. GitHub：將根目錄的 `index.html`、`app.js`、`styles.css` 更新成 v1.2
+6. `config.js` 保留你目前正確的 `/exec` URL
+7. Commit 到 `main`
+8. GitHub Pages 部署完成後按 Ctrl+F5
+9. 正常畫面應由「正在連線 Google Drive…」變成「Google Drive 已連線」
+
+
+
 # Team Dispatch — GitHub Pages + Google Drive
 
 此版本將前端部署在 **GitHub Pages**，後端資料放在 **Google Sheets / Google Drive**，並以 **Google Apps Script** 執行登入、權限與任務資料操作。

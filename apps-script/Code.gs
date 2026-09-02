@@ -1,6 +1,6 @@
 
 const APP = {
-  VERSION: '1.0.0',
+  VERSION: '1.2.0',
   USERS: 'Users',
   TASKS: 'Tasks',
   SESSIONS: 'Sessions',
@@ -66,10 +66,46 @@ function promptAllowedOrigin() {
 }
 
 function doGet(e) {
-  const t = HtmlService.createTemplateFromFile('Bridge');
-  t.allowedOrigin = PropertiesService.getScriptProperties().getProperty('ALLOWED_ORIGIN') || '';
+  const origin = PropertiesService.getScriptProperties().getProperty('ALLOWED_ORIGIN') || '';
+  return responseHtml_({
+    channel: 'team-dispatch-rpc',
+    id: 'health',
+    ok: true,
+    result: { ok: true, version: APP.VERSION }
+  }, origin);
+}
+
+function doPost(e) {
+  const requestId = e && e.parameter ? String(e.parameter.requestId || '') : '';
+  const payloadText = e && e.parameter ? String(e.parameter.payload || '{}') : '{}';
+  const origin = PropertiesService.getScriptProperties().getProperty('ALLOWED_ORIGIN') || '';
+
+  let message;
+  try {
+    const result = api(payloadText);
+    message = {
+      channel: 'team-dispatch-rpc',
+      id: requestId,
+      ok: true,
+      result: result
+    };
+  } catch (err) {
+    message = {
+      channel: 'team-dispatch-rpc',
+      id: requestId,
+      ok: false,
+      error: err && err.message ? err.message : String(err)
+    };
+  }
+  return responseHtml_(message, origin);
+}
+
+function responseHtml_(message, origin) {
+  const t = HtmlService.createTemplateFromFile('Response');
+  t.messageJson = JSON.stringify(message);
+  t.allowedOrigin = origin;
   return t.evaluate()
-    .setTitle('Team Dispatch Bridge')
+    .setTitle('Team Dispatch Response')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
@@ -79,6 +115,7 @@ function api(payloadJson) {
     if (!p || !p.action) throw new Error('缺少 action');
 
     switch (p.action) {
+      case 'ping': return jsonSafe_({ok:true, version:APP.VERSION});
       case 'login': return jsonSafe_(login_(p));
       case 'me': return jsonSafe_(me_(p));
       case 'logout': return jsonSafe_(logout_(p));

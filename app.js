@@ -3,11 +3,10 @@ const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const app = $('#app');
 const cfg = window.TEAM_DISPATCH_CONFIG || {};
-const bridgeFrame = $('#gasBridge');
 
-let bridgeReady = false;
 let rpcSeq = 1;
 const pendingRpc = new Map();
+let backendReady = false;
 let me = null, users = [], incoming = [], outgoing = [];
 let myMode = 'list';
 let currentWeekStart = startOfWeek(new Date());
@@ -18,7 +17,7 @@ function startOfWeek(d){
 }
 function dateOnly(s){ return s ? new Date(`${String(s).slice(0,10)}T00:00:00`) : null; }
 function fmtDate(s){
-  if(!s) return '-'; const d=dateOnly(s); 
+  if(!s) return '-'; const d=dateOnly(s);
   return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
 }
 function fmtDateTime(s){
@@ -38,64 +37,125 @@ function statusText(s){ return ({pending:'待接受',accepted:'已接單',reject
 function token(){ return localStorage.getItem('teamDispatchToken') || ''; }
 function setToken(v){ if(v)localStorage.setItem('teamDispatchToken',v); else localStorage.removeItem('teamDispatchToken'); }
 
-function validBridgeOrigin(origin){
+function validGoogleOrigin(origin){
   try{
     const u=new URL(origin);
-    return u.hostname === 'script.google.com' || u.hostname.endsWith('.googleusercontent.com') || u.hostname === 'script.googleusercontent.com';
+    return u.protocol === 'https:' && (
+      u.hostname === 'script.google.com' ||
+      u.hostname === 'script.googleusercontent.com' ||
+      u.hostname.endsWith('.googleusercontent.com')
+    );
   }catch{return false;}
 }
 
 window.addEventListener('message', ev=>{
-  if(!validBridgeOrigin(ev.origin)) return;
+  if(!validGoogleOrigin(ev.origin)) return;
   const m=ev.data||{};
-  if(m.channel==='team-dispatch-ready'){
-    bridgeReady=true;
-    const st=$('#bridgeState');
-    if(st){ st.textContent='Google Drive 已連線'; st.className='bridge-state ok'; }
-    const btn=$('#loginForm button[type="submit"]'); if(btn) btn.disabled=false;
-    return;
-  }
   if(m.channel!=='team-dispatch-rpc' || !m.id) return;
-  const p=pendingRpc.get(m.id); if(!p)return;
-  pendingRpc.delete(m.id); clearTimeout(p.timer);
-  if(m.ok) p.resolve(m.result); else p.reject(new Error(m.error||'操作失敗'));
+  const p=pendingRpc.get(m.id);
+  if(!p) return;
+  pendingRpc.delete(m.id);
+  clearTimeout(p.timer);
+  try{ p.iframe.remove(); }catch{}
+  if(m.ok) p.resolve(m.result);
+  else p.reject(new Error(m.error||'操作失敗'));
 });
 
 function rpc(action, payload={}){
-  if(!bridgeReady) return Promise.reject(new Error('Google Drive 尚未連線'));
+  if(!cfg.APPS_SCRIPT_URL || cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){
+    return Promise.reject(new Error('尚未設定 Apps Script URL'));
+  }
+
   return new Promise((resolve,reject)=>{
     const id=`r${Date.now()}_${rpcSeq++}`;
-    const timer=setTimeout(()=>{pendingRpc.delete(id);reject(new Error('連線逾時，請重新整理後再試'));},cfg.REQUEST_TIMEOUT_MS||20000);
-    pendingRpc.set(id,{resolve,reject,timer});
-    bridgeFrame.contentWindow.postMessage({
-      channel:'team-dispatch-rpc',
-      id,
-      payload:{action,token:token(),...payload}
-    }, '*');
+    const frameName=`td_rpc_${id}`;
+
+    const iframe=document.createElement('iframe');
+    iframe.name=frameName;
+    iframe.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;left:-9999px;top:-9999px;';
+    iframe.setAttribute('aria-hidden','true');
+    document.body.appendChild(iframe);
+
+    const form=document.createElement('form');
+    form.method='POST';
+    form.action=cfg.APPS_SCRIPT_URL;
+    form.target=frameName;
+    form.style.display='none';
+
+    const requestId=document.createElement('input');
+    requestId.type='hidden';
+    requestId.name='requestId';
+    requestId.value=id;
+    form.appendChild(requestId);
+
+    const data=document.createElement('input');
+    data.type='hidden';
+    data.name='payload';
+    data.value=JSON.stringify({action,token:token(),...payload});
+    form.appendChild(data);
+
+    document.body.appendChild(form);
+
+    const timer=setTimeout(()=>{
+      pendingRpc.delete(id);
+      try{iframe.remove();}catch{}
+      reject(new Error('Google Apps Script 回應逾時'));
+    },cfg.REQUEST_TIMEOUT_MS||20000);
+
+    pendingRpc.set(id,{resolve,reject,timer,iframe});
+
+    try{
+      form.submit();
+    }catch(err){
+      clearTimeout(timer);
+      pendingRpc.delete(id);
+      iframe.remove();
+      reject(err);
+    }finally{
+      form.remove();
+    }
   });
 }
 
-function initBridge(){
+async function connectBackend(){
   showLogin();
+  const st=$('#bridgeState');
+
   if(!cfg.APPS_SCRIPT_URL || cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){
-    const st=$('#bridgeState'); st.textContent='尚未設定 Apps Script URL'; st.className='bridge-state bad';
+    st.textContent='尚未設定 Apps Script URL';
+    st.className='bridge-state bad';
     $('#loginError').textContent='請先修改 config.js 的 APPS_SCRIPT_URL。';
     return;
   }
-  bridgeFrame.src = cfg.APPS_SCRIPT_URL + (cfg.APPS_SCRIPT_URL.includes('?')?'&':'?') + 'bridge=1';
-}
 
-async function bootAfterBridge(){
-  if(!token()) return;
   try{
-    const d=await rpc('me');
-    me=d.user; showMain(); await loadAll();
-  }catch{ setToken(''); showLogin(); }
-}
+    await rpc('ping');
+    backendReady=true;
+    if($('#bridgeState')){
+      $('#bridgeState').textContent='Google Drive 已連線';
+      $('#bridgeState').className='bridge-state ok';
+    }
+    if($('#loginForm button[type="submit"]')) $('#loginForm button[type="submit"]').disabled=false;
 
+    if(token()){
+      try{
+        const d=await rpc('me');
+        me=d.user; showMain(); await loadAll();
+      }catch{
+        setToken('');
+      }
+    }
+  }catch(err){
+    if($('#bridgeState')){
+      $('#bridgeState').textContent='Google Drive 連線失敗';
+      $('#bridgeState').className='bridge-state bad';
+    }
+    if($('#loginError')) $('#loginError').textContent=err.message;
+  }
+}
 function showLogin(){
   me=null; app.innerHTML=''; app.append($('#loginTpl').content.cloneNode(true));
-  if(bridgeReady){
+  if(backendReady){
     $('#bridgeState').textContent='Google Drive 已連線'; $('#bridgeState').className='bridge-state ok';
     $('#loginForm button[type="submit"]').disabled=false;
   }
@@ -271,10 +331,5 @@ async function renderAdmin(){
 function escapeHtml(v=''){return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 function attr(v=''){return escapeHtml(v);}
 
-// Bridge may be ready before DOM listener catches first ready message.
-// Ask it to announce itself again after iframe load.
-bridgeFrame.addEventListener('load',()=>{try{bridgeFrame.contentWindow.postMessage({channel:'team-dispatch-ping'},'*');}catch{}});
-window.addEventListener('message',ev=>{
-  if(validBridgeOrigin(ev.origin)&&ev.data?.channel==='team-dispatch-ready'&&token()) bootAfterBridge();
-});
-initBridge();
+
+connectBackend();

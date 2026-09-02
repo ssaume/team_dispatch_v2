@@ -8,7 +8,6 @@
 body{margin:0;font-family:Inter,"Noto Sans TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--ink)}
 button,input,select,textarea{font:inherit} button{cursor:pointer}
 .hidden{display:none!important}.muted{color:var(--muted)}.error{color:#b83343;margin-top:10px;min-height:20px}
-#gasBridge{position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;left:-9999px;top:-9999px}
 
 .login-shell{min-height:100vh;display:grid;place-items:center;padding:24px}
 .login-card{width:min(420px,100%);background:#fff;border:1px solid var(--line);border-radius:22px;padding:32px;box-shadow:0 18px 60px rgba(40,88,111,.12)}

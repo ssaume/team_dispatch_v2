@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+</head>
+<body>
+<script>
+  const MESSAGE = <?!= messageJson ?>;
+  const TARGET_ORIGIN = <?!= JSON.stringify(allowedOrigin) ?>;
+
+  try {
+    window.top.postMessage(MESSAGE, TARGET_ORIGIN || '*');
+  } catch (err) {
+    try {
+      window.top.postMessage({
+        channel: 'team-dispatch-rpc',
+        id: MESSAGE.id,
+        ok: false,
+        error: String(err)
+      }, TARGET_ORIGIN || '*');
+    } catch (_) {}
+  }
+</script>
+</body>
+</html>
