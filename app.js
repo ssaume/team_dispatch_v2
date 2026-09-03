@@ -91,7 +91,6 @@ function endDataLoading(){
     if(overlay)overlay.classList.add('hidden');
   }
 }
-}
 
 function validGoogleOrigin(origin){try{const u=new URL(origin);return u.protocol==='https:'&&(u.hostname==='script.google.com'||u.hostname==='script.googleusercontent.com'||u.hostname.endsWith('.googleusercontent.com'))}catch{return false}}
 window.addEventListener('message',ev=>{if(!validGoogleOrigin(ev.origin))return;const m=ev.data||{};if(m.channel!=='team-dispatch-rpc'||!m.id)return;const p=pendingRpc.get(m.id);if(!p)return;pendingRpc.delete(m.id);clearTimeout(p.timer);try{p.iframe.remove()}catch{}if(p.hasDataLoading)endDataLoading();m.ok?p.resolve(m.result):p.reject(new Error(m.error||'操作失敗'))});
