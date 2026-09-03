@@ -260,3 +260,11 @@ dialog{border:0;border-radius:16px;padding:0;box-shadow:0 18px 80px rgba(0,0,0,.
   background:#eceaf4;
   color:#66587b;
 }
+
+.two-week-calendar{display:grid;gap:18px}
+.calendar-week-block{min-width:0}
+.calendar-week-label{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 8px;padding:0 4px;color:var(--muted);font-size:13px}
+.calendar-week-label strong{color:var(--ink);font-size:14px}
+.allocation-row-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.allocation-row .move-btn,.allocation-row .split-btn{padding:6px 9px;font-size:12px}
+@media(max-width:720px){.calendar-week-label{align-items:flex-start;flex-direction:column;gap:2px}.allocation-row{align-items:flex-start}}

@@ -141,6 +141,27 @@
     </dialog>
 
 
+
+    <dialog id="moveAllocationDialog">
+      <form id="moveAllocationForm" class="dialog-card">
+        <div class="dialog-header">
+          <h3>移動日曆任務</h3>
+          <button type="button" id="moveAllocationClose" class="icon-btn">×</button>
+        </div>
+        <input type="hidden" name="allocationId">
+        <div id="moveAllocationSummary" class="split-summary"></div>
+        <label>
+          目標日期
+          <input type="date" name="targetDate" required>
+        </label>
+        <div id="moveAllocationHint" class="mini">週末、國定假日、請假日與任務有效期間外的日期不可移入。</div>
+        <div class="dialog-actions">
+          <button type="button" id="moveAllocationCancel" class="ghost">取消</button>
+          <button type="submit" class="primary">確認移動</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="splitAllocationDialog">
       <form id="splitAllocationForm" class="dialog-card">
         <div class="dialog-header">

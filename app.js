@@ -324,7 +324,7 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
 async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];adminUsers=d.adminUsers||[];taskTitles=d.taskTitles||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];holidays=d.holidays||[];teamCalendarCache.clear();renderMy();renderRequest();renderSchedule();refreshTaskTitleOptions()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
 
@@ -365,7 +365,10 @@ function openDetail(id){
                 <strong>${fmtDate(a.workDate)}</strong>
                 <span>${num(a.hours)}h</span>
               </div>
-              ${canEditSchedule?`<button type="button" class="secondary split-btn" data-split-allocation="${a.id}">比例分拆</button>`:''}
+              ${canEditSchedule?`<div class="allocation-row-actions">
+                <button type="button" class="secondary move-btn" data-move-allocation="${a.id}">移動日期</button>
+                <button type="button" class="secondary split-btn" data-split-allocation="${a.id}">比例分拆</button>
+              </div>`:''}
             </div>`).join('')
           : '<div class="mini">目前沒有可顯示的日排程。</div>'}
         ${canEditSchedule?'<div class="mini allocation-help">也可以直接在「我的工作 → 日曆」拖曳區塊到其他工作日。</div>':''}
@@ -404,6 +407,9 @@ function openDetail(id){
     <div class="k">拒絕理由</div><div>${escapeHtml(t.rejectionReason||'-')}</div>
   </div>${allocationHtml}`;
 
+  $$('[data-move-allocation]',$('#taskDetail')).forEach(b=>{
+    b.addEventListener('click',()=>openMoveAllocation(b.dataset.moveAllocation));
+  });
   $$('[data-split-allocation]',$('#taskDetail')).forEach(b=>{
     b.addEventListener('click',()=>openSplitAllocation(b.dataset.splitAllocation));
   });
@@ -441,6 +447,44 @@ function openDetail(id){
   }
 
   $('#taskDialog').showModal();
+}
+
+
+function openMoveAllocation(allocationId){
+  const a=myAllocations.find(x=>String(x.id)===String(allocationId));
+  if(!a)return;
+  const t=incoming.find(x=>String(x.id)===String(a.taskId));
+  if(!t||t.status!=='accepted')return;
+  const form=$('#moveAllocationForm');
+  form.reset();
+  form.elements.allocationId.value=a.id;
+  form.elements.targetDate.min=String(t.acceptedAt||t.createdAt).slice(0,10);
+  form.elements.targetDate.max=t.requestDate;
+  form.elements.targetDate.value=a.workDate;
+  $('#moveAllocationSummary').innerHTML=`<strong>${escapeHtml(t.workType)}</strong><div>目前：${fmtDate(a.workDate)} · ${num(a.hours)}h</div>`;
+  $('#moveAllocationDialog').showModal();
+}
+
+async function handleMoveAllocation(e){
+  e.preventDefault();
+  const form=e.currentTarget;
+  const allocationId=form.elements.allocationId.value;
+  const a=myAllocations.find(x=>String(x.id)===String(allocationId));
+  if(!a)return;
+  const targetDate=form.elements.targetDate.value;
+  if(!targetDate){alert('請指定目標日期');return}
+  if(targetDate===a.workDate){$('#moveAllocationDialog').close();return}
+  const same=myAllocations.filter(x=>String(x.taskId)===String(a.taskId)&&String(x.workDate)===String(targetDate)&&String(x.id)!==String(a.id));
+  let merge=false;
+  if(same.length){
+    merge=confirm(`目標日期已有相同任務共 ${num(same.reduce((s,x)=>s+Number(x.hours||0),0))}h。\n\n按「確定」：與目標日任務合併。\n按「取消」：仍移動，但保留為獨立區塊。`);
+  }
+  try{
+    await rpc('moveAllocation',{allocationId,targetDate,merge});
+    $('#moveAllocationDialog').close();
+    await loadAll();
+    openDetail(a.taskId);
+  }catch(err){alert(err.message)}
 }
 
 function openSplitAllocation(allocationId){
@@ -516,71 +560,52 @@ async function handleSplitAllocation(e){
   }
 }
 
+
 function renderCalendar(){
   const body=$('#myBody');
-  const days=[0,1,2,3,4,5,6].map(i=>{const d=new Date(currentWeekStart);d.setDate(d.getDate()+i);return d});
-  const names=['一','二','三','四','五','六','日'];
 
-  const headers=days.map((d,i)=>`<div class="calendar-head ${!isWorkdayDate(d)?'weekend':''}">${names[i]}<br>${d.getMonth()+1}/${d.getDate()}</div>`).join('');
+  const renderWeek=(weekStart,weekIndex)=>{
+    const days=[0,1,2,3,4,5,6].map(i=>{const d=new Date(weekStart);d.setDate(d.getDate()+i);return d});
+    const names=['一','二','三','四','五','六','日'];
+    const headers=days.map((d,i)=>`<div class="calendar-head ${!isWorkdayDate(d)?'weekend':''}">${names[i]}<br>${d.getMonth()+1}/${d.getDate()}</div>`).join('');
 
-  const cells=days.map(d=>{
-    const date=isoDate(d);
-    const weekday=isWorkdayDate(d);
-    const holidayList=holidayRecordsOnDate(date);
-    const workday=weekday&&holidayList.length===0;
-    const leaves=workday?leaveRecordsOnDate(d):[];
-    const availableDrop=workday&&leaves.length===0;
+    const cells=days.map(d=>{
+      const date=isoDate(d);
+      const weekday=isWorkdayDate(d);
+      const holidayList=holidayRecordsOnDate(date);
+      const workday=weekday&&holidayList.length===0;
+      const leaves=workday?leaveRecordsOnDate(d):[];
+      const availableDrop=workday&&leaves.length===0;
+      const allocations=availableDrop
+        ? myAllocations.filter(a=>String(a.workDate)===date).map(a=>({allocation:a,task:incoming.find(t=>String(t.id)===String(a.taskId))})).filter(x=>x.task&&['accepted','completed'].includes(x.task.status))
+        : [];
+      const dayClass=holidayList.length?'holiday-day':!weekday?'weekend':leaves.length?'leave-day':'';
+      const notice=holidayList.length
+        ? holidayList.map(x=>`<div class="event-strip holiday">國休｜${escapeHtml(x.holidayName)}</div>`).join('')
+        : !weekday
+          ? `<div class="calendar-block-note">非工作日</div>`
+          : leaves.length
+            ? leaves.map(x=>`<div class="event-strip leave">假｜${escapeHtml(x.leaveType)}<div class="range-label">${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div></div>`).join('')
+            : '';
+      return `<div class="calendar-day ${dayClass} ${availableDrop?'calendar-drop-zone':''}" data-calendar-date="${date}">
+        <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
+        ${notice}
+        ${allocations.map(({allocation:a,task:t})=>`<div class="cal-task ${calClass(t)} ${t.status==='accepted'?'draggable-task':''}" data-detail="${t.id}" data-allocation-id="${a.id}" data-task-id="${t.id}" draggable="${t.status==='accepted'?'true':'false'}" title="${t.status==='accepted'?'拖曳可重新安排日期；點擊可查看、移動與分拆':'已完成任務'}"><div class="cal-task-main">${t.urgent?'<b>!</b> ':''}${escapeHtml(t.workType)}</div><div class="cal-hours">${num(a.hours)}h</div></div>`).join('')}
+      </div>`;
+    }).join('');
 
-    const allocations=availableDrop
-      ? myAllocations
-          .filter(a=>String(a.workDate)===date)
-          .map(a=>({allocation:a,task:incoming.find(t=>String(t.id)===String(a.taskId))}))
-          .filter(x=>x.task&&['accepted','completed'].includes(x.task.status))
-      : [];
+    const end=days[6];
+    return `<section class="calendar-week-block"><div class="calendar-week-label"><strong>${weekIndex===0?'第 1 週':'第 2 週'}</strong><span>${days[0].getMonth()+1}/${days[0].getDate()} ～ ${end.getMonth()+1}/${end.getDate()}</span></div><div class="calendar-grid">${headers}${cells}</div></section>`;
+  };
 
-    const dayClass=holidayList.length?'holiday-day':!weekday?'weekend':leaves.length?'leave-day':'';
+  const secondWeekStart=new Date(currentWeekStart);
+  secondWeekStart.setDate(secondWeekStart.getDate()+7);
 
-    const notice=holidayList.length
-      ? holidayList.map(x=>`<div class="event-strip holiday">國休｜${escapeHtml(x.holidayName)}</div>`).join('')
-      : !weekday
-        ? `<div class="calendar-block-note">非工作日</div>`
-        : leaves.length
-          ? leaves.map(x=>`<div class="event-strip leave">假｜${escapeHtml(x.leaveType)}<div class="range-label">${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div></div>`).join('')
-          : '';
-
-    return `<div class="calendar-day ${dayClass} ${availableDrop?'calendar-drop-zone':''}" data-calendar-date="${date}">
-      <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
-      ${notice}
-      ${allocations.map(({allocation:a,task:t})=>`
-        <div class="cal-task ${calClass(t)} ${t.status==='accepted'?'draggable-task':''}"
-          data-detail="${t.id}"
-          data-allocation-id="${a.id}"
-          data-task-id="${t.id}"
-          draggable="${t.status==='accepted'?'true':'false'}"
-          title="${t.status==='accepted'?'拖曳可重新安排日期；點擊可查看與分拆':'已完成任務'}">
-          <div class="cal-task-main">${t.urgent?'<b>!</b> ':''}${escapeHtml(t.workType)}</div>
-          <div class="cal-hours">${num(a.hours)}h</div>
-        </div>
-      `).join('')}
-    </div>`;
-  }).join('');
-
-  body.innerHTML=`<div class="page-header">
-    <div class="toolbar">
-      <button class="ghost" id="prevWeek">← 上週</button>
-      <button class="ghost" id="thisWeek">本週</button>
-      <button class="ghost" id="nextWeek">下週 →</button>
-    </div>
-    <div class="muted">可拖曳已接單任務重新排程；週末、國定假日與請假日不可放置</div>
-  </div>
-  <div class="panel calendar-wrap">
-    <div class="calendar-grid">${headers}${cells}</div>
-  </div>`;
+  body.innerHTML=`<div class="page-header"><div class="toolbar"><button class="ghost" id="prevWeek">← 前一週</button><button class="ghost" id="thisWeek">今天</button><button class="ghost" id="nextWeek">後一週 →</button></div><div class="muted">一次顯示連續兩週，可直接跨週拖曳；也可點進任務使用「移動日期」</div></div><div class="two-week-calendar">${renderWeek(currentWeekStart,0)}${renderWeek(secondWeekStart,1)}</div>`;
 
   $('#prevWeek').onclick=()=>{currentWeekStart.setDate(currentWeekStart.getDate()-7);renderCalendar()};
   $('#thisWeek').onclick=()=>{currentWeekStart=startOfWeek(new Date());renderCalendar()};
   $('#nextWeek').onclick=()=>{currentWeekStart.setDate(currentWeekStart.getDate()+7);renderCalendar()};
-
   bindCalendarInteractions(body);
 }
 
