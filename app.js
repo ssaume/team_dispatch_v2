@@ -290,35 +290,6 @@ function dashboardTaskTable(tasks,mode){
     return `<div class="dashboard-empty">${mode==='week'?'本工作週沒有未結任務。':'未來 15 天沒有到期的未結任務。'}</div>`;
   }
 
-  if(mode==='future'){
-    return `<div class="panel table-scroll dashboard-table-wrap">
-      <table class="dashboard-table">
-        <thead>
-          <tr>
-            <th>任務</th>
-            <th>負責人</th>
-            <th>狀態</th>
-            <th>需求日</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tasks.map(t=>`<tr class="${t.urgent?'dashboard-urgent-row':''}">
-            <td>
-              <div class="dashboard-task-name">
-                ${t.urgent?'<span class="urgent">!</span>':''}
-                <strong>${escapeHtml(t.workType)}</strong>
-              </div>
-              ${t.selfAssigned?'<div class="mini">自己建立</div>':''}
-            </td>
-            <td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td>
-            <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
-            <td>${fmtDate(t.requestDate)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
-  }
-
   return `<div class="panel table-scroll dashboard-table-wrap">
     <table class="dashboard-table">
       <thead>
@@ -327,20 +298,11 @@ function dashboardTaskTable(tasks,mode){
           <th>負責人</th>
           <th>狀態</th>
           <th>需求日</th>
-          <th>本週排程</th>
-          <th>預估總工時</th>
         </tr>
       </thead>
       <tbody>
         ${tasks.map(t=>{
           const grouped=!!t.grouped;
-          const workload=grouped
-            ? '-'
-            : t.status==='pending'
-              ? t.plannedHours
-              : t.weekHours;
-
-          const planned=grouped?'-':`${num(t.plannedHours)}h`;
           const due=grouped&&t.requestDateEnd&&t.requestDateEnd!==t.requestDate
             ? `${fmtDate(t.requestDate)} ～ ${fmtDate(t.requestDateEnd)}`
             : fmtDate(t.requestDate);
@@ -356,8 +318,6 @@ function dashboardTaskTable(tasks,mode){
             <td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td>
             <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
             <td>${due}</td>
-            <td><strong>${workload==='-'?'-':num(workload)+'h'}</strong></td>
-            <td>${planned}</td>
           </tr>`;
         }).join('')}
       </tbody>
