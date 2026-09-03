@@ -131,7 +131,7 @@
     <dialog id="selfTaskDialog">
       <form id="selfTaskForm" class="dialog-card">
         <div class="dialog-header"><h3>新增自己的工作</h3><button type="button" id="selfTaskClose" class="icon-btn">×</button></div>
-        <label>工作類型<input name="workType" placeholder="自由輸入，例如：資料整理" required></label>
+        <label>工作類型<input name="workType" list="taskTitleOptionsSelf" placeholder="自由輸入或選擇既有名稱" required><datalist id="taskTitleOptionsSelf"></datalist></label>
         <label>需求內容<textarea name="content" rows="5" required></textarea></label>
         <label>需求日期<input type="date" name="requestDate" required></label>
         <label>預估工時（小時）<input type="number" name="plannedHours" min="0.25" max="999" step="0.25" value="8" required></label>

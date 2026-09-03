@@ -245,3 +245,18 @@ dialog{border:0;border-radius:16px;padding:0;box-shadow:0 18px 80px rgba(0,0,0,.
 .visibility-badge.private{background:#eeeaf4;color:#66557c}
 .inline-visibility-select{width:auto;min-width:90px;display:inline-block;padding:6px 9px;vertical-align:middle}
 .visibility-save-btn{padding:7px 10px;margin-left:5px;font-size:12px;vertical-align:middle}
+
+/* v1.8 planned-hours editing */
+.planned-hours-edit{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.planned-hours-edit input{
+  width:110px;
+}
+.badge.mixed{
+  background:#eceaf4;
+  color:#66587b;
+}

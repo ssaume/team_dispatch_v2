@@ -1,6 +1,6 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let me=null,users=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[];let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[];const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
 function startOfWeek(d){const x=new Date(d),day=x.getDay(),diff=day===0?-6:1-day;x.setDate(x.getDate()+diff);x.setHours(0,0,0,0);return x}function isoDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}function dateOnly(s){return s?new Date(`${String(s).slice(0,10)}T00:00:00`):null}function fmtDate(s){if(!s)return'-';const d=dateOnly(s);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}function fmtDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?String(s):d.toLocaleString('zh-TW',{hour12:false})}function fmtLocalDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toLocaleString('zh-TW',{hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function isWorkdayDate(d){return ![0,6].includes(new Date(d).getDay())}
 function leaveRecordsOnDate(d){
@@ -19,11 +19,11 @@ function holidayRecordsOnDate(d){
   return holidays.filter(x=>String(x.holidayDate)===key);
 }
 
-function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHours(0,0,0,0);return Math.ceil((due-now)/86400000)}function colorClass(t){if(t.status==='completed')return'task-gray';const d=daysToDue(t);if(d<0)return'task-pink';if(d<=2)return'task-orange';return'task-green'}function calClass(t){return colorClass(t).replace('task-','cal-')}function statusText(s){return({pending:'待接受',accepted:'已接單',rejected:'已拒絕',completed:'已完成'})[s]||s}function token(){return localStorage.getItem('teamDispatchToken')||''}function setToken(v){if(v)localStorage.setItem('teamDispatchToken',v);else localStorage.removeItem('teamDispatchToken')}
+function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHours(0,0,0,0);return Math.ceil((due-now)/86400000)}function colorClass(t){if(t.status==='completed')return'task-gray';const d=daysToDue(t);if(d<0)return'task-pink';if(d<=2)return'task-orange';return'task-green'}function calClass(t){return colorClass(t).replace('task-','cal-')}function statusText(s){return({pending:'待接受',accepted:'已接單',rejected:'已拒絕',completed:'已完成',mixed:'多筆'})[s]||s}function token(){return localStorage.getItem('teamDispatchToken')||''}function setToken(v){if(v)localStorage.setItem('teamDispatchToken',v);else localStorage.removeItem('teamDispatchToken')}
 
 const COMMIT_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
-  'setUrgent','setCompleted','setTaskVisibility','moveAllocation','splitAllocation',
+  'setUrgent','setCompleted','setTaskVisibility','updateTaskPlannedHours','moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
   'adminCreateUser','adminUpdateUser',
   'adminCreateHoliday','adminDeleteHoliday'
@@ -36,6 +36,7 @@ const COMMIT_MESSAGES={
   setUrgent:'正在更新緊急狀態…',
   setCompleted:'正在更新完成狀態…',
   setTaskVisibility:'正在更新任務公開屬性…',
+  updateTaskPlannedHours:'正在依目前排程比例重新計算工時…',
   moveAllocation:'正在移動並重新計算排程…',
   splitAllocation:'正在分拆並重新計算排程…',
   createLeave:'正在新增請假並重新計算排程…',
@@ -276,9 +277,17 @@ function dashboardTaskTable(tasks,mode){
       </thead>
       <tbody>
         ${tasks.map(t=>{
-          const workload=mode==='week'
-            ? (t.status==='pending'?t.plannedHours:t.weekHours)
-            : t.remainingHours;
+          const grouped=!!t.grouped;
+          const workload=grouped
+            ? '-'
+            : mode==='week'
+              ? (t.status==='pending'?t.plannedHours:t.weekHours)
+              : t.remainingHours;
+
+          const planned=grouped?'-':`${num(t.plannedHours)}h`;
+          const due=grouped&&t.requestDateEnd&&t.requestDateEnd!==t.requestDate
+            ? `${fmtDate(t.requestDate)} ～ ${fmtDate(t.requestDateEnd)}`
+            : fmtDate(t.requestDate);
 
           return `<tr class="${t.urgent?'dashboard-urgent-row':''}">
             <td>
@@ -286,13 +295,13 @@ function dashboardTaskTable(tasks,mode){
                 ${t.urgent?'<span class="urgent">!</span>':''}
                 <strong>${escapeHtml(t.workType)}</strong>
               </div>
-              ${t.selfAssigned?'<div class="mini">自己建立</div>':''}
+              ${grouped?`<div class="mini">合併 ${t.taskCount} 筆同名任務</div>`:(t.selfAssigned?'<div class="mini">自己建立</div>':'')}
             </td>
             <td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td>
             <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
-            <td>${fmtDate(t.requestDate)}</td>
-            <td><strong>${num(workload)}h</strong></td>
-            <td>${num(t.plannedHours)}h</td>
+            <td>${due}</td>
+            <td><strong>${workload==='-'?'-':num(workload)+'h'}</strong></td>
+            <td>${planned}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -302,8 +311,19 @@ function dashboardTaskTable(tasks,mode){
 
 function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
-async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];holidays=d.holidays||[];renderMy();renderRequest();renderSchedule()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
-function renderMy(){const el=$('#myView');if(!el)return;const pending=incoming.filter(x=>x.status==='pending').length,accepted=incoming.filter(x=>x.status==='accepted').length,completed=incoming.filter(x=>x.status==='completed').length,overdue=incoming.filter(x=>!['completed','rejected'].includes(x.status)&&daysToDue(x)<0).length;el.innerHTML=`<div class="page-header"><div><h1>我的工作</h1><div class="muted">查看待接受、已接單與已完成工作</div></div><div class="toolbar"><button class="primary" id="newSelfTask">＋新增自己的工作</button><div class="segmented"><button data-mode="list" class="${myMode==='list'?'active':''}">清單</button><button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button></div></div></div><div class="cards"><div class="stat"><div class="muted">待接受</div><div class="n">${pending}</div></div><div class="stat"><div class="muted">已接單</div><div class="n">${accepted}</div></div><div class="stat"><div class="muted">已完成</div><div class="n">${completed}</div></div><div class="stat"><div class="muted">已逾期</div><div class="n">${overdue}</div></div></div><div id="myBody"></div>`;$('#newSelfTask').onclick=()=>{$('#selfTaskForm').reset();$('#selfTaskForm [name="plannedHours"]').value='8';$('#selfTaskDialog').showModal()};$$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{myMode=b.dataset.mode;renderMy()}));myMode==='list'?renderMyList():renderCalendar()}
+async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];adminUsers=d.adminUsers||[];taskTitles=d.taskTitles||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];holidays=d.holidays||[];teamCalendarCache.clear();renderMy();renderRequest();renderSchedule();refreshTaskTitleOptions()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
+
+function taskTitleOptionsHtml(){
+  return taskTitles.map(x=>`<option value="${attr(x)}"></option>`).join('');
+}
+function refreshTaskTitleOptions(){
+  const self=$('#taskTitleOptionsSelf');
+  if(self)self.innerHTML=taskTitleOptionsHtml();
+  const req=$('#taskTitleOptionsRequest');
+  if(req)req.innerHTML=taskTitleOptionsHtml();
+}
+
+function renderMy(){const el=$('#myView');if(!el)return;const pending=incoming.filter(x=>x.status==='pending').length,accepted=incoming.filter(x=>x.status==='accepted').length,completed=incoming.filter(x=>x.status==='completed').length,overdue=incoming.filter(x=>!['completed','rejected'].includes(x.status)&&daysToDue(x)<0).length;el.innerHTML=`<div class="page-header"><div><h1>我的工作</h1><div class="muted">查看待接受、已接單與已完成工作</div></div><div class="toolbar"><button class="primary" id="newSelfTask">＋新增自己的工作</button><div class="segmented"><button data-mode="list" class="${myMode==='list'?'active':''}">清單</button><button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button></div></div></div><div class="cards"><div class="stat"><div class="muted">待接受</div><div class="n">${pending}</div></div><div class="stat"><div class="muted">已接單</div><div class="n">${accepted}</div></div><div class="stat"><div class="muted">已完成</div><div class="n">${completed}</div></div><div class="stat"><div class="muted">已逾期</div><div class="n">${overdue}</div></div></div><div id="myBody"></div>`;$('#newSelfTask').onclick=()=>{$('#selfTaskForm').reset();$('#selfTaskForm [name="plannedHours"]').value='8';refreshTaskTitleOptions();$('#selfTaskDialog').showModal()};$$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{myMode=b.dataset.mode;renderMy()}));myMode==='list'?renderMyList():renderCalendar()}
 async function handleSelfTask(e){e.preventDefault();const fd=new FormData(e.currentTarget);try{await rpc('createSelfTask',Object.fromEntries(fd));$('#selfTaskDialog').close();await loadAll();alert('自己的工作已建立，已自動接單')}catch(err){alert(err.message)}}
 function renderMyList(){const body=$('#myBody');const rows=incoming.map(t=>`<tr class="${colorClass(t)}"><td>${t.urgent?'<span class="urgent">!</span> ':''}<button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button>${t.selfAssigned?'<div class="mini">自己建立</div>':''}</td><td>${escapeHtml(t.requesterName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span></td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${taskActions(t)}</td></tr>`).join('');body.innerHTML=`<div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>操作</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">目前沒有工作</td></tr>'}</tbody></table></div>`;bindTaskActions(body)}
 function taskActions(t){if(t.status==='pending')return`<div class="row-actions"><button class="secondary" data-accept="${t.id}">接受</button><button class="danger" data-reject="${t.id}">拒絕</button></div>`;if(['accepted','completed'].includes(t.status))return`<div class="row-actions"><button class="ghost" data-urgent="${t.id}" data-value="${t.urgent?0:1}">${t.urgent?'取消緊急':'標示緊急'}</button><button class="secondary" data-complete="${t.id}" data-value="${t.status==='completed'?0:1}">${t.status==='completed'?'改回未完成':'完成'}</button></div>`;return t.rejectionReason?`<span class="muted">理由：${escapeHtml(t.rejectionReason)}</span>`:'-'}
@@ -343,7 +363,15 @@ function openDetail(id){
     <div class="k">派工者</div><div>${escapeHtml(t.requesterName)}</div>
     <div class="k">被派工者</div><div>${escapeHtml(t.assigneeName)}</div>
     <div class="k">需求日期</div><div>${fmtDate(t.requestDate)}</div>
-    <div class="k">預估工時</div><div>${num(t.plannedHours)} 小時</div>
+    <div class="k">預估總工時</div>
+    <div>
+      <div class="planned-hours-edit">
+        <input id="taskPlannedHoursInput" type="number" min="0.01" max="999" step="0.01" value="${num(t.plannedHours)}">
+        <span>小時</span>
+        <button type="button" id="saveTaskPlannedHours" class="secondary">更新總工時</button>
+      </div>
+      <div class="mini">若已拖拉／合併／分拆，更新後會依目前各日期工時比例重新分配。</div>
+    </div>
     <div class="k">是否公開</div>
     <div>
       <span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span>
@@ -364,6 +392,24 @@ function openDetail(id){
   $$('[data-split-allocation]',$('#taskDetail')).forEach(b=>{
     b.addEventListener('click',()=>openSplitAllocation(b.dataset.splitAllocation));
   });
+
+  const plannedHoursBtn=$('#saveTaskPlannedHours');
+  if(plannedHoursBtn){
+    plannedHoursBtn.addEventListener('click',async()=>{
+      const plannedHours=Number($('#taskPlannedHoursInput').value);
+      if(!Number.isFinite(plannedHours)||plannedHours<=0||plannedHours>999){
+        alert('請輸入 0～999 之間的有效工時');
+        return;
+      }
+      try{
+        await rpc('updateTaskPlannedHours',{taskId:t.id,plannedHours});
+        await loadAll();
+        openDetail(t.id);
+      }catch(err){
+        alert(err.message);
+      }
+    });
+  }
 
   const visibilityBtn=$('#saveTaskVisibility');
   if(visibilityBtn){
@@ -600,11 +646,11 @@ function bindCalendarInteractions(root){
   });
 }
 
-function renderRequest(){const el=$('#requestView');if(!el)return;const options=users.filter(u=>u.id!==me.id&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)} (${escapeHtml(u.username)})</option>`).join(''),rows=outgoing.filter(t=>!t.selfAssigned).map(t=>`<tr><td><button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button></td><td>${escapeHtml(t.assigneeName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${t.rejectionReason?escapeHtml(t.rejectionReason):'-'}</td></tr>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請別人協助</h1><div class="muted">建立派工前會檢查對方 Loading、請假與出差</div></div></div><div class="request-grid"><form id="createTaskForm" class="form-card"><h3>新增派工</h3><label>被派工者<select name="assigneeId" required><option value="">請選擇</option>${options}</select></label><label>工作類型<input name="workType" placeholder="自由輸入，例如：資料整理" required></label><label>需求內容<textarea name="content" rows="5" required></textarea></label><label>需求日期<input type="date" name="requestDate" required></label><label>預估工時（小時）<input type="number" name="plannedHours" min="0.25" max="999" step="0.25" value="8" required></label><label>是否公開<select name="visibility" required><option value="public" selected>公開</option><option value="private">私人</option></select></label><div id="availabilityHint" class="hint-box">選擇被派工者、需求日期與預估工時後，系統會檢查行事曆。</div><button class="primary" type="submit">送出派工</button></form><div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>被派工者</th><th>需求日期</th><th>預估工時</th><th>公開</th><th>狀態</th><th>拒絕理由</th></tr></thead><tbody>${rows||'<tr><td colspan="7" class="empty">尚未建立派工</td></tr>'}</tbody></table></div></div>`;const form=$('#createTaskForm');['assigneeId','requestDate','plannedHours'].forEach(n=>form.elements[n].addEventListener('change',()=>scheduleAvailabilityCheck(form)));form.elements.plannedHours.addEventListener('input',()=>scheduleAvailabilityCheck(form));form.addEventListener('submit',async e=>{e.preventDefault();const taskForm=e.currentTarget;const fd=new FormData(taskForm),payload=Object.fromEntries(fd);try{const check=await rpc('checkAvailability',payload);if(check.hasWarning&&!confirm(availabilityConfirmText(check)))return;await rpc('createTask',payload);taskForm.reset();taskForm.elements.plannedHours.value='8';lastAvailability=null;await loadAll();alert('派工已送出')}catch(err){alert(err.message)}});$$('[data-detail]',el).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)))}
+function renderRequest(){const el=$('#requestView');if(!el)return;const options=users.filter(u=>u.id!==me.id&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)} (${escapeHtml(u.username)})</option>`).join(''),rows=outgoing.filter(t=>!t.selfAssigned).map(t=>`<tr><td><button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button></td><td>${escapeHtml(t.assigneeName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${t.rejectionReason?escapeHtml(t.rejectionReason):'-'}</td></tr>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請別人協助</h1><div class="muted">建立派工前會檢查對方 Loading、請假與出差</div></div></div><div class="request-grid"><form id="createTaskForm" class="form-card"><h3>新增派工</h3><label>被派工者<select name="assigneeId" required><option value="">請選擇</option>${options}</select></label><label>工作類型<input name="workType" list="taskTitleOptionsRequest" placeholder="自由輸入或選擇既有名稱" required><datalist id="taskTitleOptionsRequest">${taskTitleOptionsHtml()}</datalist></label><label>需求內容<textarea name="content" rows="5" required></textarea></label><label>需求日期<input type="date" name="requestDate" required></label><label>預估工時（小時）<input type="number" name="plannedHours" min="0.25" max="999" step="0.25" value="8" required></label><label>是否公開<select name="visibility" required><option value="public" selected>公開</option><option value="private">私人</option></select></label><div id="availabilityHint" class="hint-box">選擇被派工者、需求日期與預估工時後，系統會檢查行事曆。</div><button class="primary" type="submit">送出派工</button></form><div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>被派工者</th><th>需求日期</th><th>預估工時</th><th>公開</th><th>狀態</th><th>拒絕理由</th></tr></thead><tbody>${rows||'<tr><td colspan="7" class="empty">尚未建立派工</td></tr>'}</tbody></table></div></div>`;const form=$('#createTaskForm');['assigneeId','requestDate','plannedHours'].forEach(n=>form.elements[n].addEventListener('change',()=>scheduleAvailabilityCheck(form)));form.elements.plannedHours.addEventListener('input',()=>scheduleAvailabilityCheck(form));form.addEventListener('submit',async e=>{e.preventDefault();const taskForm=e.currentTarget;const fd=new FormData(taskForm),payload=Object.fromEntries(fd);try{const check=await rpc('checkAvailability',payload);if(check.hasWarning&&!confirm(availabilityConfirmText(check)))return;await rpc('createTask',payload);taskForm.reset();taskForm.elements.plannedHours.value='8';lastAvailability=null;await loadAll();alert('派工已送出')}catch(err){alert(err.message)}});$$('[data-detail]',el).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)))}
 function scheduleAvailabilityCheck(form){clearTimeout(availabilityTimer);availabilityTimer=setTimeout(()=>checkAvailabilityUI(form),450)}async function checkAvailabilityUI(form){const hint=$('#availabilityHint');if(!hint)return;const assigneeId=form.elements.assigneeId.value,requestDate=form.elements.requestDate.value,plannedHours=form.elements.plannedHours.value;if(!assigneeId||!requestDate||!plannedHours){hint.className='hint-box';hint.textContent='選擇被派工者、需求日期與預估工時後，系統會檢查行事曆。';return}hint.className='hint-box';hint.textContent='正在檢查行事曆…';try{const d=await rpc('checkAvailability',{assigneeId,requestDate,plannedHours});lastAvailability=d;hint.className=`hint-box ${d.hasWarning?'warn':'ok'}`;hint.innerHTML=availabilityHtml(d)}catch(e){hint.className='hint-box warn';hint.textContent=e.message}}
 function availabilityHtml(d){const lines=[`預估期間最高 Loading：<strong>${Math.round(d.peakLoadPct)}%</strong>`];if(d.highLoadDates?.length)lines.push(`Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' ('+Math.round(x.loadPct)+'%)').join('、')}`);if(d.holidays?.length)lines.push(`國定假日：${d.holidays.map(x=>escapeHtml(x.holidayName)+' '+fmtDate(x.holidayDate)).join('；')}`);if(d.leaves?.length)lines.push(`請假：${d.leaves.map(x=>escapeHtml(x.leaveType)+' '+fmtLocalDateTime(x.startDateTime)+'～'+fmtLocalDateTime(x.endDateTime)).join('；')}`);if(d.trips?.length)lines.push(`出差：${d.trips.map(x=>escapeHtml(x.purpose)+' '+fmtDate(x.startDate)+'～'+fmtDate(x.endDate)).join('；')}`);if(!d.hasWarning)lines.push('此期間目前沒有 Loading > 80%、國定假日、請假或出差衝突。');return lines.map(x=>`<div class="hint-line">${x}</div>`).join('')}function availabilityConfirmText(d){const parts=['被派工者的行事曆有以下提示：'];if(d.highLoadDates?.length)parts.push(`• Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' '+Math.round(x.loadPct)+'%').join('、')}`);if(d.holidays?.length)parts.push(`• 有 ${d.holidays.length} 個國定假日`);if(d.leaves?.length)parts.push(`• 有 ${d.leaves.length} 筆請假`);if(d.trips?.length)parts.push(`• 有 ${d.trips.length} 筆出差`);parts.push('仍要送出派工嗎？');return parts.join('\n')}
 function renderSchedule(){const el=$('#scheduleView');if(!el)return;const leaveRows=myLeaves.map(x=>`<div class="record-card leave"><div><div class="record-title">${escapeHtml(x.leaveType)}</div><div>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div><div class="mini">只計入週一至週五工作日</div></div><button class="ghost" data-del-leave="${x.id}">刪除</button></div>`).join(''),tripRows=myTrips.map(x=>`<div class="record-card trip"><div><div class="record-title">${escapeHtml(x.purpose)}</div><div>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</div><div class="mini">以天為顆粒度，只計入週一至週五</div></div><button class="ghost" data-del-trip="${x.id}">刪除</button></div>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請假／出差設定</h1><div class="muted">請假可精確到分鐘；出差以天為單位</div></div></div><div class="schedule-grid"><form id="leaveForm" class="form-card"><h3>新增請假</h3><label>假別<input name="leaveType" list="leaveTypes" placeholder="例如：特休" required><datalist id="leaveTypes"><option value="特休"><option value="事假"><option value="病假"><option value="公假"><option value="其他"></datalist></label><label>開始時間<input type="datetime-local" name="startDateTime" step="60" required></label><label>結束時間<input type="datetime-local" name="endDateTime" step="60" required></label><button class="primary">新增請假</button></form><form id="tripForm" class="form-card"><h3>新增出差</h3><label>目的<textarea name="purpose" rows="3" placeholder="例如：台中工廠 UAT Workshop" required></textarea></label><label>開始日期<input type="date" name="startDate" required></label><label>結束日期<input type="date" name="endDate" required></label><button class="primary">新增出差</button></form></div><div class="schedule-grid"><div class="panel panel-pad"><h3>我的請假</h3><div class="record-list">${leaveRows||'<div class="empty">尚無請假紀錄</div>'}</div></div><div class="panel panel-pad"><h3>我的出差</h3><div class="record-list">${tripRows||'<div class="empty">尚無出差紀錄</div>'}</div></div></div>`;$('#leaveForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createLeave',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$('#tripForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createTrip',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$$('[data-del-leave]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此請假紀錄？'))return;try{await rpc('deleteLeave',{id:b.dataset.delLeave});await loadAll();renderSchedule()}catch(e){alert(e.message)}});$$('[data-del-trip]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此出差紀錄？'))return;try{await rpc('deleteTrip',{id:b.dataset.delTrip});await loadAll();renderSchedule()}catch(e){alert(e.message)}})}
-async function renderTeamCalendar(){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);try{const d=await rpc('teamCalendar',{startDate:isoDate(teamStart),endDate:isoDate(end)});drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
+async function renderTeamCalendar(){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);const startDate=isoDate(teamStart),endDate=isoDate(end),cacheKey=`${startDate}|${endDate}`;try{let d=teamCalendarCache.get(cacheKey);if(!d){d=await rpc('teamCalendar',{startDate,endDate});teamCalendarCache.set(cacheKey,d)}drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
 function drawTeamGantt(data){
   const wrap=$('#teamGantt');
   if(!wrap)return;
@@ -660,13 +706,7 @@ function drawTeamGantt(data){
 async function renderAdmin(){
   if(me?.role!=='admin'||!$('#adminView'))return;
 
-  let data;
-  try{
-    data=await rpc('adminListUsers');
-  }catch(e){
-    alert(e.message);
-    return;
-  }
+  const data={users:adminUsers,holidays};
 
   const rows=(data.users||[]).map(u=>`<div class="admin-row" data-user-row="${u.id}">
     <input data-field="displayName" value="${attr(u.displayName)}">
