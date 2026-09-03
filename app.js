@@ -21,14 +21,32 @@ function holidayRecordsOnDate(d){
 
 function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHours(0,0,0,0);return Math.ceil((due-now)/86400000)}function colorClass(t){if(t.status==='completed')return'task-gray';const d=daysToDue(t);if(d<0)return'task-pink';if(d<=2)return'task-orange';return'task-green'}function calClass(t){return colorClass(t).replace('task-','cal-')}function statusText(s){return({pending:'待接受',accepted:'已接單',rejected:'已拒絕',completed:'已完成',mixed:'多筆'})[s]||s}function token(){return localStorage.getItem('teamDispatchToken')||''}function setToken(v){if(v)localStorage.setItem('teamDispatchToken',v);else localStorage.removeItem('teamDispatchToken')}
 
-const COMMIT_ACTIONS=new Set([
+const WRITE_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
-  'setUrgent','setCompleted','setTaskVisibility','updateTaskPlannedHours','moveAllocation','splitAllocation',
+  'setUrgent','setCompleted','setTaskVisibility','updateTaskPlannedHours',
+  'moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
   'adminCreateUser','adminUpdateUser',
   'adminCreateHoliday','adminDeleteHoliday'
 ]);
-const COMMIT_MESSAGES={
+
+// Read actions that actually wait for Google Sheet / Apps Script data.
+// checkAvailability is intentionally excluded because it runs automatically
+// while the user edits the assignment form; a full-screen overlay there
+// would make normal typing feel blocked.
+const READ_ACTIONS=new Set([
+  'loadAll',
+  'teamCalendar',
+  'publicDashboard',
+  'adminListUsers'
+]);
+
+const DATA_LOADING_MESSAGES={
+  loadAll:'正在讀取工作資料…',
+  teamCalendar:'正在讀取團隊出勤資料…',
+  publicDashboard:'正在讀取任務儀表板…',
+  adminListUsers:'正在讀取系統管理資料…',
+
   createTask:'正在建立派工…',
   createSelfTask:'正在建立工作並計算排程…',
   acceptTask:'正在接單並建立日排程…',
@@ -48,31 +66,42 @@ const COMMIT_MESSAGES={
   adminCreateHoliday:'正在新增國定假日並重新計算所有受影響排程…',
   adminDeleteHoliday:'正在刪除國定假日…'
 };
-let commitLoadingCount=0;
-function beginCommitLoading(action){
-  commitLoadingCount++;
+
+let dataLoadingCount=0;
+
+function beginDataLoading(action){
+  dataLoadingCount++;
   const overlay=$('#commitOverlay');
   if(!overlay)return;
-  $('#commitLoadingText').textContent=COMMIT_MESSAGES[action]||'正在更新 Google Drive，請稍候…';
+
+  const isRead=READ_ACTIONS.has(action);
+  const title=$('#commitLoadingTitle');
+  if(title)title.textContent=isRead?'資料讀取中':'資料處理中';
+
+  const text=$('#commitLoadingText');
+  if(text)text.textContent=DATA_LOADING_MESSAGES[action]||(isRead?'正在讀取資料，請稍候…':'正在更新 Google Drive，請稍候…');
+
   overlay.classList.remove('hidden');
 }
-function endCommitLoading(){
-  commitLoadingCount=Math.max(0,commitLoadingCount-1);
-  if(commitLoadingCount===0){
+
+function endDataLoading(){
+  dataLoadingCount=Math.max(0,dataLoadingCount-1);
+  if(dataLoadingCount===0){
     const overlay=$('#commitOverlay');
     if(overlay)overlay.classList.add('hidden');
   }
 }
+}
 
 function validGoogleOrigin(origin){try{const u=new URL(origin);return u.protocol==='https:'&&(u.hostname==='script.google.com'||u.hostname==='script.googleusercontent.com'||u.hostname.endsWith('.googleusercontent.com'))}catch{return false}}
-window.addEventListener('message',ev=>{if(!validGoogleOrigin(ev.origin))return;const m=ev.data||{};if(m.channel!=='team-dispatch-rpc'||!m.id)return;const p=pendingRpc.get(m.id);if(!p)return;pendingRpc.delete(m.id);clearTimeout(p.timer);try{p.iframe.remove()}catch{}if(p.isCommit)endCommitLoading();m.ok?p.resolve(m.result):p.reject(new Error(m.error||'操作失敗'))});
+window.addEventListener('message',ev=>{if(!validGoogleOrigin(ev.origin))return;const m=ev.data||{};if(m.channel!=='team-dispatch-rpc'||!m.id)return;const p=pendingRpc.get(m.id);if(!p)return;pendingRpc.delete(m.id);clearTimeout(p.timer);try{p.iframe.remove()}catch{}if(p.hasDataLoading)endDataLoading();m.ok?p.resolve(m.result):p.reject(new Error(m.error||'操作失敗'))});
 function rpc(action,payload={}){
   if(!cfg.APPS_SCRIPT_URL||cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){
     return Promise.reject(new Error('尚未設定 Apps Script URL'));
   }
 
-  const isCommit=COMMIT_ACTIONS.has(action);
-  if(isCommit)beginCommitLoading(action);
+  const hasDataLoading=WRITE_ACTIONS.has(action)||READ_ACTIONS.has(action);
+  if(hasDataLoading)beginDataLoading(action);
 
   return new Promise((resolve,reject)=>{
     const id=`r${Date.now()}_${rpcSeq++}`;
@@ -105,11 +134,11 @@ function rpc(action,payload={}){
     const timer=setTimeout(()=>{
       pendingRpc.delete(id);
       try{iframe.remove()}catch{}
-      if(isCommit)endCommitLoading();
+      if(hasDataLoading)endDataLoading();
       reject(new Error('Google Apps Script 回應逾時'));
     },cfg.REQUEST_TIMEOUT_MS||20000);
 
-    pendingRpc.set(id,{resolve,reject,timer,iframe,isCommit});
+    pendingRpc.set(id,{resolve,reject,timer,iframe,hasDataLoading});
 
     try{
       form.submit();
@@ -117,7 +146,7 @@ function rpc(action,payload={}){
       clearTimeout(timer);
       pendingRpc.delete(id);
       iframe.remove();
-      if(isCommit)endCommitLoading();
+      if(hasDataLoading)endDataLoading();
       reject(err);
     }finally{
       form.remove();
@@ -244,7 +273,7 @@ async function loadPublicDashboard(){
 function renderPublicDashboard(d){
   $('#dashboardGeneratedAt').textContent=fmtDateTime(d.generatedAt);
   $('#dashboardWeekRange').textContent=`工作週 ${fmtDate(d.weekStart)} ～ ${fmtDate(d.weekEnd)}`;
-  $('#dashboardHorizonRange').textContent=`${fmtDate(d.today)} ～ ${fmtDate(d.horizonEnd)} · 依剩餘工作量由高到低排序`;
+  $('#dashboardHorizonRange').textContent=`${fmtDate(d.today)} ～ ${fmtDate(d.horizonEnd)} · 依需求日期排序`;
 
   const week=d.currentWeekTasks||[];
   const future=d.next15DaysTasks||[];
@@ -261,7 +290,34 @@ function dashboardTaskTable(tasks,mode){
     return `<div class="dashboard-empty">${mode==='week'?'本工作週沒有未結任務。':'未來 15 天沒有到期的未結任務。'}</div>`;
   }
 
-  const workloadLabel=mode==='week'?'本週排程':'剩餘工作量';
+  if(mode==='future'){
+    return `<div class="panel table-scroll dashboard-table-wrap">
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            <th>任務</th>
+            <th>負責人</th>
+            <th>狀態</th>
+            <th>需求日</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tasks.map(t=>`<tr class="${t.urgent?'dashboard-urgent-row':''}">
+            <td>
+              <div class="dashboard-task-name">
+                ${t.urgent?'<span class="urgent">!</span>':''}
+                <strong>${escapeHtml(t.workType)}</strong>
+              </div>
+              ${t.selfAssigned?'<div class="mini">自己建立</div>':''}
+            </td>
+            <td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td>
+            <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
+            <td>${fmtDate(t.requestDate)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
 
   return `<div class="panel table-scroll dashboard-table-wrap">
     <table class="dashboard-table">
@@ -271,7 +327,7 @@ function dashboardTaskTable(tasks,mode){
           <th>負責人</th>
           <th>狀態</th>
           <th>需求日</th>
-          <th>${workloadLabel}</th>
+          <th>本週排程</th>
           <th>預估總工時</th>
         </tr>
       </thead>
@@ -280,9 +336,9 @@ function dashboardTaskTable(tasks,mode){
           const grouped=!!t.grouped;
           const workload=grouped
             ? '-'
-            : mode==='week'
-              ? (t.status==='pending'?t.plannedHours:t.weekHours)
-              : t.remainingHours;
+            : t.status==='pending'
+              ? t.plannedHours
+              : t.weekHours;
 
           const planned=grouped?'-':`${num(t.plannedHours)}h`;
           const due=grouped&&t.requestDateEnd&&t.requestDateEnd!==t.requestDate
