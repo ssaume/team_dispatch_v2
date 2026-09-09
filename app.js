@@ -19,11 +19,11 @@ function holidayRecordsOnDate(d){
   return holidays.filter(x=>String(x.holidayDate)===key);
 }
 
-function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHours(0,0,0,0);return Math.ceil((due-now)/86400000)}function colorClass(t){if(t.status==='completed')return'task-gray';const d=daysToDue(t);if(d<0)return'task-pink';if(d<=2)return'task-orange';return'task-green'}function calClass(t){return colorClass(t).replace('task-','cal-')}function statusText(s){return({pending:'待接受',accepted:'已接單',rejected:'已拒絕',completed:'已完成',mixed:'多筆'})[s]||s}function token(){return localStorage.getItem('teamDispatchToken')||''}function setToken(v){if(v)localStorage.setItem('teamDispatchToken',v);else localStorage.removeItem('teamDispatchToken')}
+function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHours(0,0,0,0);return Math.ceil((due-now)/86400000)}function colorClass(t){if(t.status==='completed')return'task-gray';const d=daysToDue(t);if(d<0)return'task-pink';if(d<=2)return'task-orange';return'task-green'}function calClass(t){return colorClass(t).replace('task-','cal-')}function statusText(s){return({pending:'待接受',accepted:'已接單',rejected:'已拒絕',cancelled:'已中止',completed:'已完成',mixed:'多筆'})[s]||s}function token(){return localStorage.getItem('teamDispatchToken')||''}function setToken(v){if(v)localStorage.setItem('teamDispatchToken',v);else localStorage.removeItem('teamDispatchToken')}
 
 const WRITE_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
-  'setUrgent','setCompleted','setTaskVisibility','updateTaskPlannedHours',
+  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateTaskPlannedHours','stopTask',
   'moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
   'adminCreateUser','adminUpdateUser',
@@ -54,6 +54,8 @@ const DATA_LOADING_MESSAGES={
   setUrgent:'正在更新緊急狀態…',
   setCompleted:'正在更新完成狀態…',
   setTaskVisibility:'正在更新任務公開屬性…',
+  updateTaskDetails:'正在更新任務內容…',
+  stopTask:'正在中止任務…',
   updateTaskPlannedHours:'正在依目前排程比例重新計算工時…',
   moveAllocation:'正在移動並重新計算排程…',
   splitAllocation:'正在分拆並重新計算排程…',
@@ -376,8 +378,16 @@ function openDetail(id){
     : '';
 
   $('#taskDetail').innerHTML=`<div class="detail-grid">
-    <div class="k">工作類型</div><div>${escapeHtml(t.workType)}</div>
-    <div class="k">需求內容</div><div>${escapeHtml(t.content).replace(/\n/g,'<br>')}</div>
+    <div class="k">工作類型</div>
+    <div>
+      <input id="taskWorkTypeInput" list="taskTitleOptionsDetail" value="${attr(t.workType)}" ${t.status==='cancelled'?'disabled':''}>
+      <datalist id="taskTitleOptionsDetail">${taskTitleOptionsHtml()}</datalist>
+    </div>
+    <div class="k">需求內容</div>
+    <div>
+      <textarea id="taskContentInput" rows="5" ${t.status==='cancelled'?'disabled':''}>${escapeHtml(t.content)}</textarea>
+      ${t.status!=='cancelled'?'<button type="button" id="saveTaskDetails" class="secondary task-detail-save">更新工作內容</button>':''}
+    </div>
     <div class="k">派工者</div><div>${escapeHtml(t.requesterName)}</div>
     <div class="k">被派工者</div><div>${escapeHtml(t.assigneeName)}</div>
     <div class="k">需求日期</div><div>${fmtDate(t.requestDate)}</div>
@@ -405,7 +415,13 @@ function openDetail(id){
     <div class="k">接單時間</div><div>${fmtDateTime(t.acceptedAt)}</div>
     <div class="k">完成時間</div><div>${fmtDateTime(t.completedAt)}</div>
     <div class="k">拒絕理由</div><div>${escapeHtml(t.rejectionReason||'-')}</div>
-  </div>${allocationHtml}`;
+  </div>
+  ${!['completed','rejected','cancelled'].includes(t.status)?`
+    <div class="task-stop-zone">
+      <button type="button" id="stopTaskBtn" class="danger">中止任務</button>
+      <div class="mini">中止後不再計入 Loading，也不再顯示於工作日曆與公開儀表板。</div>
+    </div>`:''}
+  ${allocationHtml}`;
 
   $$('[data-move-allocation]',$('#taskDetail')).forEach(b=>{
     b.addEventListener('click',()=>openMoveAllocation(b.dataset.moveAllocation));
@@ -413,6 +429,33 @@ function openDetail(id){
   $$('[data-split-allocation]',$('#taskDetail')).forEach(b=>{
     b.addEventListener('click',()=>openSplitAllocation(b.dataset.splitAllocation));
   });
+
+  const saveDetailsBtn=$('#saveTaskDetails');
+  if(saveDetailsBtn){
+    saveDetailsBtn.addEventListener('click',async()=>{
+      const workType=$('#taskWorkTypeInput').value.trim();
+      const content=$('#taskContentInput').value.trim();
+      if(!workType||!content){alert('工作類型與需求內容不可空白');return}
+      try{
+        await rpc('updateTaskDetails',{taskId:t.id,workType,content});
+        await loadAll();
+        openDetail(t.id);
+      }catch(err){alert(err.message)}
+    });
+  }
+
+  const stopBtn=$('#stopTaskBtn');
+  if(stopBtn){
+    stopBtn.addEventListener('click',async()=>{
+      const ok=confirm(`確定要中止「${t.workType}」？\n\n中止後：\n• 不再計入 Loading\n• 不再出現在工作日曆\n• 不再出現在免登入儀表板\n• 既有日排程資料保留作歷史紀錄`);
+      if(!ok)return;
+      try{
+        await rpc('stopTask',{taskId:t.id});
+        $('#taskDialog').close();
+        await loadAll();
+      }catch(err){alert(err.message)}
+    });
+  }
 
   const plannedHoursBtn=$('#saveTaskPlannedHours');
   if(plannedHoursBtn){
