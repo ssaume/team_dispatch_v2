@@ -9,12 +9,14 @@
 </head>
 <body>
   <div id="app"></div>
-  <dialog id="commitOverlay" class="commit-overlay" role="status" aria-live="polite" aria-busy="true">
-    <div class="commit-loading-card">
-      <div class="loading-spinner" aria-hidden="true"></div>
-      <div>
-        <strong id="commitLoadingTitle">資料讀取中</strong>
-        <div id="commitLoadingText">正在讀取資料，請稍候…</div>
+  <dialog id="commitOverlay" class="loading-dialog" role="status" aria-live="polite" aria-busy="true">
+    <div class="loading-dialog-center">
+      <div class="commit-loading-card">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <div>
+          <strong id="commitLoadingTitle">資料讀取中</strong>
+          <div id="commitLoadingText">正在讀取資料，請稍候…</div>
+        </div>
       </div>
     </div>
   </dialog>
