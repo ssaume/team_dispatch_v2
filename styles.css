@@ -451,3 +451,42 @@ dialog.commit-overlay[open]{
   align-items:center;
   justify-content:center;
 }
+
+/* v2.5.4 direct schedule-hours editor */
+.schedule-edit-row{
+  gap:12px;
+}
+.schedule-hours-control{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.schedule-hours-control input{
+  width:92px;
+}
+.schedule-add-row{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid var(--line);
+}
+.schedule-add-row select{
+  min-width:210px;
+}
+.schedule-save-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top:12px;
+}
+.schedule-diff{
+  display:inline-block;
+  margin-left:8px;
+  color:#a96300;
+  font-weight:700;
+}

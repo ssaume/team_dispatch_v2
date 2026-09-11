@@ -42,7 +42,7 @@ function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHo
 
 const WRITE_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
-  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','stopTask',
+  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','updateTaskSchedule','stopTask',
   'moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
   'adminCreateUser','adminUpdateUser','adminUpdateTaskDetails',
@@ -79,6 +79,7 @@ const DATA_LOADING_MESSAGES={
   updateSelfTaskRequestDate:'正在更新需求日期並整理排程…',
   stopTask:'正在中止任務…',
   updateTaskPlannedHours:'正在依目前排程比例重新計算工時…',
+  updateTaskSchedule:'正在更新日曆排程…',
   moveAllocation:'正在移動並重新計算排程…',
   splitAllocation:'正在分拆並重新計算排程…',
   createLeave:'正在新增請假並重新計算排程…',
@@ -487,6 +488,158 @@ function renderMyList(){const body=$('#myBody');const rows=incoming.map(t=>`<tr 
 function taskActions(t){if(t.status==='pending')return`<div class="row-actions"><button class="secondary" data-accept="${t.id}">接受</button><button class="danger" data-reject="${t.id}">拒絕</button></div>`;if(['accepted','completed'].includes(t.status))return`<div class="row-actions"><button class="ghost" data-urgent="${t.id}" data-value="${t.urgent?0:1}">${t.urgent?'取消緊急':'標示緊急'}</button><button class="secondary" data-complete="${t.id}" data-value="${t.status==='completed'?0:1}">${t.status==='completed'?'改回未完成':'完成'}</button></div>`;return t.rejectionReason?`<span class="muted">理由：${escapeHtml(t.rejectionReason)}</span>`:'-'}
 function bindTaskActions(root){$$('[data-detail]',root).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));$$('[data-accept]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('acceptTask',{taskId:b.dataset.accept});await loadAll()}catch(e){alert(e.message)}}));$$('[data-reject]',root).forEach(b=>b.addEventListener('click',()=>{$('#rejectForm [name="task_id"]').value=b.dataset.reject;$('#rejectForm [name="reason"]').value='';$('#rejectDialog').showModal()}));$$('[data-urgent]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('setUrgent',{taskId:b.dataset.urgent,urgent:b.dataset.value==='1'});await loadAll()}catch(e){alert(e.message)}}));$$('[data-complete]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('setCompleted',{taskId:b.dataset.complete,completed:b.dataset.value==='1'});await loadAll()}catch(e){alert(e.message)}}))}
 async function handleReject(e){e.preventDefault();const fd=new FormData(e.currentTarget);try{await rpc('rejectTask',{taskId:fd.get('task_id'),reason:fd.get('reason')});$('#rejectDialog').close();await loadAll()}catch(err){alert(err.message)}}
+
+function taskScheduleStartDate(t){
+  if(t.isPeriodic&&t.periodStartDate)return String(t.periodStartDate).slice(0,10);
+  const raw=t.acceptedAt||t.createdAt;
+  return raw?isoDate(new Date(raw)):'';
+}
+
+function taskScheduleValidDates(t,allocations){
+  const start=taskScheduleStartDate(t);
+  const due=String(t.requestDate||'').slice(0,10);
+  if(!start||!due||start>due)return[];
+
+  const existingDates=new Set(
+    allocations.map(a=>String(a.workDate))
+  );
+
+  const out=[];
+  const d=new Date(`${start}T12:00:00`);
+  const e=new Date(`${due}T12:00:00`);
+
+  while(d<=e){
+    const key=isoDate(d);
+    const weekday=isWorkdayDate(d);
+    const holiday=holidayRecordsOnDate(key).length>0;
+    const leaveHours=leaveHoursOnDateClient(key);
+    const availableHours=Math.max(0,8-leaveHours);
+
+    if(weekday&&!holiday&&availableHours>0&&!existingDates.has(key)){
+      out.push({
+        date:key,
+        leaveHours,
+        availableHours
+      });
+    }
+
+    d.setDate(d.getDate()+1);
+  }
+
+  return out;
+}
+
+function groupedTaskAllocations(allocations){
+  const map=new Map();
+
+  allocations.forEach(a=>{
+    const date=String(a.workDate);
+    const row=map.get(date)||{workDate:date,hours:0};
+    row.hours+=Number(a.hours||0);
+    map.set(date,row);
+  });
+
+  return [...map.values()]
+    .map(x=>({...x,hours:Math.round(x.hours*100)/100}))
+    .sort((a,b)=>a.workDate.localeCompare(b.workDate));
+}
+
+function refreshTaskScheduleSummary(t){
+  const box=$('#taskScheduleEditor');
+  if(!box)return;
+
+  const inputs=$$('[data-schedule-hours]',box);
+  const total=inputs.reduce((sum,input)=>sum+(Number(input.value)||0),0);
+  const rounded=Math.round(total*100)/100;
+  const planned=Math.round(Number(t.plannedHours||0)*100)/100;
+  const diff=Math.round((planned-rounded)*100)/100;
+
+  const summary=$('#taskScheduleSummary');
+  const save=$('#saveTaskSchedule');
+
+  if(summary){
+    summary.innerHTML=diff===0
+      ? `<strong>合計 ${num(rounded)}h / 預估 ${num(planned)}h</strong>`
+      : `<strong>合計 ${num(rounded)}h / 預估 ${num(planned)}h</strong><span class="schedule-diff">尚差 ${num(diff)}h</span>`;
+  }
+
+  if(save)save.disabled=Math.abs(diff)>0.009||!inputs.length;
+}
+
+function addTaskScheduleRow(t){
+  const select=$('#taskScheduleAddDate');
+  if(!select||!select.value)return;
+
+  const date=select.value;
+  const list=$('#taskScheduleRows');
+  if(!list)return;
+
+  const currentInputs=$$('[data-schedule-hours]',$('#taskScheduleEditor'));
+  const currentTotal=currentInputs.reduce((sum,input)=>sum+(Number(input.value)||0),0);
+  const remaining=Math.round((Number(t.plannedHours||0)-currentTotal)*100)/100;
+  const defaultHours=remaining>0?remaining:0.01;
+
+  const row=document.createElement('div');
+  row.className='allocation-row schedule-edit-row';
+  row.dataset.scheduleDate=date;
+  row.innerHTML=`
+    <div>
+      <strong>${fmtDate(date)}</strong>
+      <div class="mini schedule-capacity-note"></div>
+    </div>
+    <div class="schedule-hours-control">
+      <input type="number" min="0.01" max="999" step="0.01"
+        value="${num(defaultHours)}"
+        data-schedule-hours="${attr(date)}">
+      <span>h</span>
+      <button type="button" class="ghost" data-remove-schedule="${attr(date)}">移除</button>
+    </div>
+  `;
+
+  list.appendChild(row);
+
+  [...select.options].forEach(o=>{
+    if(o.value===date)o.remove();
+  });
+  select.value='';
+
+  bindTaskScheduleEditorEvents(t);
+  refreshTaskScheduleSummary(t);
+}
+
+function bindTaskScheduleEditorEvents(t){
+  const box=$('#taskScheduleEditor');
+  if(!box)return;
+
+  $$('[data-schedule-hours]',box).forEach(input=>{
+    if(input.dataset.bound==='1')return;
+    input.dataset.bound='1';
+    input.addEventListener('input',()=>refreshTaskScheduleSummary(t));
+  });
+
+  $$('[data-remove-schedule]',box).forEach(btn=>{
+    if(btn.dataset.bound==='1')return;
+    btn.dataset.bound='1';
+    btn.addEventListener('click',()=>{
+      const date=btn.dataset.removeSchedule;
+      const row=btn.closest('[data-schedule-date]');
+      if(row)row.remove();
+
+      const allocations=myAllocations.filter(a=>String(a.taskId)===String(t.id));
+      const candidates=taskScheduleValidDates(t,allocations)
+        .filter(x=>!$$('[data-schedule-date]',box).some(r=>r.dataset.scheduleDate===x.date));
+
+      const select=$('#taskScheduleAddDate');
+      if(select){
+        select.innerHTML='<option value="">選擇工作日</option>'+
+          candidates.map(x=>`<option value="${attr(x.date)}">${fmtDate(x.date)}${x.leaveHours>0?`（請假後可用 ${num(x.availableHours)}h）`:''}</option>`).join('');
+      }
+
+      refreshTaskScheduleSummary(t);
+    });
+  });
+}
+
 function openDetail(id){
   const t=[...incoming,...outgoing].find(x=>String(x.id)===String(id));
   if(!t)return;
@@ -495,26 +648,63 @@ function openDetail(id){
     .filter(a=>String(a.taskId)===String(t.id))
     .sort((a,b)=>String(a.workDate).localeCompare(String(b.workDate))||Number(a.hours)-Number(b.hours));
 
-  const scheduledHours=allocations.reduce((s,a)=>s+Number(a.hours||0),0);
+  const groupedAllocations=groupedTaskAllocations(allocations);
+  const scheduledHours=groupedAllocations.reduce((s,a)=>s+Number(a.hours||0),0);
   const canEditSchedule=isMyTaskParticipant(t)&&t.status==='accepted';
 
+  const scheduleCandidates=canEditSchedule
+    ? taskScheduleValidDates(t,groupedAllocations)
+    : [];
+
   const allocationHtml=isMyTaskParticipant(t)&&['accepted','completed'].includes(t.status)
-    ? `<div class="allocation-detail">
+    ? `<div class="allocation-detail" id="taskScheduleEditor">
         <h4>日曆排程</h4>
-        <div class="allocation-total">已排 ${num(scheduledHours)}h / 預估 ${num(t.plannedHours)}h</div>
-        ${allocations.length
-          ? allocations.map(a=>`<div class="allocation-row">
-              <div>
-                <strong>${fmtDate(a.workDate)}</strong>
-                <span>${num(a.hours)}h</span>
-              </div>
-              ${canEditSchedule?`<div class="allocation-row-actions">
-                <button type="button" class="secondary move-btn" data-move-allocation="${a.id}">移動日期</button>
-                <button type="button" class="secondary split-btn" data-split-allocation="${a.id}">比例分拆</button>
-              </div>`:''}
-            </div>`).join('')
-          : '<div class="mini">目前沒有可顯示的日排程。</div>'}
-        ${canEditSchedule?'<div class="mini allocation-help">也可以直接在「我的工作 → 日曆」拖曳區塊到其他工作日。</div>':''}
+
+        ${canEditSchedule
+          ? `<div id="taskScheduleSummary" class="allocation-total">合計 ${num(scheduledHours)}h / 預估 ${num(t.plannedHours)}h</div>
+             <div id="taskScheduleRows">
+               ${groupedAllocations.length
+                 ? groupedAllocations.map(a=>{
+                     const leaveHours=leaveHoursOnDateClient(a.workDate);
+                     const availableHours=Math.max(0,8-leaveHours);
+                     return `<div class="allocation-row schedule-edit-row" data-schedule-date="${attr(a.workDate)}">
+                       <div>
+                         <strong>${fmtDate(a.workDate)}</strong>
+                         ${leaveHours>0
+                           ? `<div class="mini">${availableHours>0?`請假後可用 ${num(availableHours)}h`:'整天請假'}</div>`
+                           : ''}
+                       </div>
+                       <div class="schedule-hours-control">
+                         <input type="number" min="0.01" max="999" step="0.01"
+                           value="${num(a.hours)}"
+                           data-schedule-hours="${attr(a.workDate)}">
+                         <span>h</span>
+                         <button type="button" class="ghost" data-remove-schedule="${attr(a.workDate)}">移除</button>
+                       </div>
+                     </div>`;
+                   }).join('')
+                 : '<div class="mini">目前沒有可顯示的日排程。</div>'}
+             </div>
+
+             <div class="schedule-add-row">
+               <select id="taskScheduleAddDate">
+                 <option value="">選擇工作日</option>
+                 ${scheduleCandidates.map(x=>`<option value="${attr(x.date)}">${fmtDate(x.date)}${x.leaveHours>0?`（請假後可用 ${num(x.availableHours)}h）`:''}</option>`).join('')}
+               </select>
+               <button type="button" class="secondary" id="addTaskScheduleDate">新增工作日</button>
+             </div>
+
+             <div class="schedule-save-row">
+               <button type="button" class="primary" id="saveTaskSchedule">儲存日曆排程</button>
+               <div class="mini">每日工時合計必須等於預估總工時；新增工作日不可超過需求日。</div>
+             </div>`
+          : `<div class="allocation-total">已排 ${num(scheduledHours)}h / 預估 ${num(t.plannedHours)}h</div>
+             ${groupedAllocations.length
+               ? groupedAllocations.map(a=>`<div class="allocation-row">
+                   <div><strong>${fmtDate(a.workDate)}</strong></div>
+                   <div>${num(a.hours)}h</div>
+                 </div>`).join('')
+               : '<div class="mini">目前沒有可顯示的日排程。</div>'}`}
       </div>`
     : '';
 
@@ -574,12 +764,45 @@ function openDetail(id){
     </div>`:''}
   ${allocationHtml}`;
 
-  $$('[data-move-allocation]',$('#taskDetail')).forEach(b=>{
-    b.addEventListener('click',()=>openMoveAllocation(b.dataset.moveAllocation));
-  });
-  $$('[data-split-allocation]',$('#taskDetail')).forEach(b=>{
-    b.addEventListener('click',()=>openSplitAllocation(b.dataset.splitAllocation));
-  });
+  if(canEditSchedule){
+    bindTaskScheduleEditorEvents(t);
+    refreshTaskScheduleSummary(t);
+
+    $('#addTaskScheduleDate')?.addEventListener('click',()=>{
+      addTaskScheduleRow(t);
+    });
+
+    $('#saveTaskSchedule')?.addEventListener('click',async()=>{
+      const entries=$$('[data-schedule-date]',$('#taskScheduleEditor')).map(row=>({
+        workDate:row.dataset.scheduleDate,
+        hours:Number(row.querySelector('[data-schedule-hours]')?.value||0)
+      }));
+
+      if(!entries.length){
+        alert('至少需要保留一個工作日排程');
+        return;
+      }
+
+      const total=Math.round(entries.reduce((s,x)=>s+Number(x.hours||0),0)*100)/100;
+      const planned=Math.round(Number(t.plannedHours||0)*100)/100;
+
+      if(Math.abs(total-planned)>0.009){
+        alert(`每日工時合計必須等於預估總工時 ${num(planned)}h，目前合計 ${num(total)}h`);
+        return;
+      }
+
+      try{
+        await rpc('updateTaskSchedule',{
+          taskId:t.id,
+          entries:JSON.stringify(entries)
+        });
+        await loadAll();
+        openDetail(t.id);
+      }catch(err){
+        alert(err.message);
+      }
+    });
+  }
 
   const saveRequestDateBtn=$('#saveTaskRequestDate');
   if(saveRequestDateBtn){
