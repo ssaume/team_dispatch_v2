@@ -349,3 +349,50 @@ button.danger:hover{background:#fff0f2}
   outline:1px dashed rgba(184,117,53,.35);
   outline-offset:-2px;
 }
+
+/* v2.4 multi-dispatch / admin managed user calendar */
+#createTaskForm select[multiple]{
+  min-height:150px;
+}
+.multi-availability-person{
+  padding:8px 0;
+  border-bottom:1px solid var(--line);
+}
+.multi-availability-person:last-child{
+  border-bottom:0;
+}
+.team-user-link{
+  border:0;
+  background:transparent;
+  padding:0;
+  text-align:left;
+  color:inherit;
+  cursor:pointer;
+  font:inherit;
+  width:100%;
+}
+.team-user-link:hover span:first-child{
+  text-decoration:underline;
+}
+.team-user-link .mini{
+  display:block;
+}
+.wide-dialog{
+  width:min(96vw,1500px);
+  max-width:none;
+}
+.admin-user-work-card{
+  width:min(94vw,1460px);
+  max-width:none;
+}
+.admin-work-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-bottom:14px;
+}
+.admin-work-actions{
+  align-items:center;
+}

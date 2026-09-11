@@ -1,6 +1,6 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
 function startOfWeek(d){const x=new Date(d),day=x.getDay(),diff=day===0?-6:1-day;x.setDate(x.getDate()+diff);x.setHours(0,0,0,0);return x}function isoDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}function dateOnly(s){return s?new Date(`${String(s).slice(0,10)}T00:00:00`):null}function fmtDate(s){if(!s)return'-';const d=dateOnly(s);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}function fmtDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?String(s):d.toLocaleString('zh-TW',{hour12:false})}function fmtLocalDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toLocaleString('zh-TW',{hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function isWorkdayDate(d){return ![0,6].includes(new Date(d).getDay())}
 function leaveRecordsOnDate(d){
@@ -57,7 +57,7 @@ const READ_ACTIONS=new Set([
   'loadAll',
   'teamCalendar',
   'publicDashboard',
-  'adminListUsers','adminListTasks'
+  'adminListUsers','adminListTasks','adminUserWork'
 ]);
 
 const DATA_LOADING_MESSAGES={
@@ -66,6 +66,7 @@ const DATA_LOADING_MESSAGES={
   publicDashboard:'正在讀取任務儀表板…',
   adminListUsers:'正在讀取系統管理資料…',
   adminListTasks:'正在讀取人員工作資料…',
+  adminUserWork:'正在讀取人員工作日曆…',
 
   createTask:'正在建立派工…',
   createSelfTask:'正在建立工作並計算排程…',
@@ -368,7 +369,7 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
 async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];adminUsers=d.adminUsers||[];taskTitles=d.taskTitles||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];holidays=d.holidays||[];adminTasksLoaded=false;adminTasks=[];teamCalendarCache.clear();renderMy();renderRequest();renderSchedule();refreshTaskTitleOptions()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
 
@@ -852,8 +853,184 @@ function bindCalendarInteractions(root){
   });
 }
 
-function renderRequest(){const el=$('#requestView');if(!el)return;const options=users.filter(u=>u.id!==me.id&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)} (${escapeHtml(u.username)})</option>`).join(''),rows=outgoing.filter(t=>!t.selfAssigned).map(t=>`<tr><td><button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button></td><td>${escapeHtml(t.assigneeName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${t.rejectionReason?escapeHtml(t.rejectionReason):'-'}</td></tr>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請別人協助</h1><div class="muted">建立派工前會檢查對方 Loading、請假與出差</div></div></div><div class="request-grid"><form id="createTaskForm" class="form-card"><h3>新增派工</h3><label>被派工者<select name="assigneeId" required><option value="">請選擇</option>${options}</select></label><label>工作類型<input name="workType" list="taskTitleOptionsRequest" placeholder="自由輸入或選擇既有名稱" required><datalist id="taskTitleOptionsRequest">${taskTitleOptionsHtml()}</datalist></label><label>需求內容<textarea name="content" rows="5" required></textarea></label><label>需求日期<input type="date" name="requestDate" required></label><label>預估工時（小時）<input type="number" name="plannedHours" min="0.25" max="999" step="0.25" value="8" required></label><label>是否公開<select name="visibility" required><option value="public" selected>公開</option><option value="private">私人</option></select></label><div id="availabilityHint" class="hint-box">選擇被派工者、需求日期與預估工時後，系統會檢查行事曆。</div><button class="primary" type="submit">送出派工</button></form><div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>被派工者</th><th>需求日期</th><th>預估工時</th><th>公開</th><th>狀態</th><th>拒絕理由</th></tr></thead><tbody>${rows||'<tr><td colspan="7" class="empty">尚未建立派工</td></tr>'}</tbody></table></div></div>`;const form=$('#createTaskForm');['assigneeId','requestDate','plannedHours'].forEach(n=>form.elements[n].addEventListener('change',()=>scheduleAvailabilityCheck(form)));form.elements.plannedHours.addEventListener('input',()=>scheduleAvailabilityCheck(form));form.addEventListener('submit',async e=>{e.preventDefault();const taskForm=e.currentTarget;const fd=new FormData(taskForm),payload=Object.fromEntries(fd);try{const check=await rpc('checkAvailability',payload);if(check.hasWarning&&!confirm(availabilityConfirmText(check)))return;await rpc('createTask',payload);taskForm.reset();taskForm.elements.plannedHours.value='8';lastAvailability=null;await loadAll();alert('派工已送出')}catch(err){alert(err.message)}});$$('[data-detail]',el).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)))}
-function scheduleAvailabilityCheck(form){clearTimeout(availabilityTimer);availabilityTimer=setTimeout(()=>checkAvailabilityUI(form),450)}async function checkAvailabilityUI(form){const hint=$('#availabilityHint');if(!hint)return;const assigneeId=form.elements.assigneeId.value,requestDate=form.elements.requestDate.value,plannedHours=form.elements.plannedHours.value;if(!assigneeId||!requestDate||!plannedHours){hint.className='hint-box';hint.textContent='選擇被派工者、需求日期與預估工時後，系統會檢查行事曆。';return}hint.className='hint-box';hint.textContent='正在檢查行事曆…';try{const d=await rpc('checkAvailability',{assigneeId,requestDate,plannedHours});lastAvailability=d;hint.className=`hint-box ${d.hasWarning?'warn':'ok'}`;hint.innerHTML=availabilityHtml(d)}catch(e){hint.className='hint-box warn';hint.textContent=e.message}}
+function renderRequest(){
+  const el=$('#requestView');
+  if(!el)return;
+
+  const options=users
+    .filter(u=>String(u.id)!==String(me.id)&&u.active)
+    .map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)} (${escapeHtml(u.username)})</option>`)
+    .join('');
+
+  const rows=outgoing
+    .filter(t=>!t.selfAssigned)
+    .map(t=>`<tr>
+      <td><button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button></td>
+      <td>${escapeHtml(t.assigneeName)}</td>
+      <td>${fmtDate(t.requestDate)}</td>
+      <td>${num(t.plannedHours)}h</td>
+      <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
+      <td>${t.rejectionReason?escapeHtml(t.rejectionReason):'-'}</td>
+    </tr>`).join('');
+
+  el.innerHTML=`<div class="page-header">
+    <div>
+      <h1>請別人協助</h1>
+      <div class="muted">可一次選擇多位人員；每位人員會建立獨立派工，判定、接單與工時計算都與單一派工相同。</div>
+    </div>
+  </div>
+
+  <div class="request-grid">
+    <form id="createTaskForm" class="form-card">
+      <h3>新增派工</h3>
+
+      <label>被派工者
+        <select name="assigneeIds" multiple size="6" required>${options}</select>
+        <span class="mini">可選多位。每位都會各自負荷完整預估工時，不會彼此拆分。</span>
+      </label>
+
+      <label>工作類型
+        <input name="workType" list="taskTitleOptionsRequest" placeholder="自由輸入或選擇既有名稱" required>
+        <datalist id="taskTitleOptionsRequest">${taskTitleOptionsHtml()}</datalist>
+      </label>
+
+      <label>需求內容<textarea name="content" rows="5" required></textarea></label>
+      <label>需求日期<input type="date" name="requestDate" required></label>
+      <label>預估工時（小時）<input type="number" name="plannedHours" min="0.25" max="999" step="0.25" value="8" required></label>
+      <label>是否公開
+        <select name="visibility" required>
+          <option value="public" selected>公開</option>
+          <option value="private">私人</option>
+        </select>
+      </label>
+
+      <div id="availabilityHint" class="hint-box">
+        選擇被派工者、需求日期與預估工時後，系統會逐一檢查行事曆。
+      </div>
+
+      <button class="primary" type="submit">送出派工</button>
+    </form>
+
+    <div class="panel table-scroll">
+      <table>
+        <thead><tr><th>工作類型</th><th>被派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>拒絕理由</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="6" class="empty">尚未建立派工</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>`;
+
+  const form=$('#createTaskForm');
+
+  ['assigneeIds','requestDate','plannedHours'].forEach(n=>{
+    form.elements[n].addEventListener('change',()=>scheduleAvailabilityCheck(form));
+  });
+
+  form.elements.plannedHours.addEventListener('input',()=>scheduleAvailabilityCheck(form));
+
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const taskForm=e.currentTarget;
+
+    const assigneeIds=[...taskForm.elements.assigneeIds.selectedOptions].map(o=>o.value);
+    if(!assigneeIds.length){
+      alert('請至少選擇一位被派工者');
+      return;
+    }
+
+    const payload=Object.fromEntries(new FormData(taskForm));
+    payload.assigneeIds=assigneeIds;
+
+    try{
+      const checks=await Promise.all(
+        assigneeIds.map(async id=>({
+          user:users.find(u=>String(u.id)===String(id)),
+          result:await rpc('checkAvailability',{
+            assigneeId:id,
+            requestDate:payload.requestDate,
+            plannedHours:payload.plannedHours
+          })
+        }))
+      );
+
+      const warnings=checks.filter(x=>x.result.hasWarning);
+      if(warnings.length){
+        const text=['以下人員有行事曆提示：'];
+        warnings.forEach(x=>{
+          text.push('');
+          text.push(`【${x.user?.displayName||'人員'}】`);
+          text.push(availabilityConfirmText(x.result).replace(/^被派工者的行事曆有以下提示：\n?/,''));
+        });
+        text.push('');
+        text.push('仍要送出多重派工嗎？');
+        if(!confirm(text.join('\n')))return;
+      }
+
+      const result=await rpc('createTask',payload);
+
+      taskForm.reset();
+      taskForm.elements.plannedHours.value='8';
+      lastAvailability=null;
+      await loadAll();
+
+      alert(`派工已送出，共 ${result.count||assigneeIds.length} 位人員`);
+    }catch(err){
+      alert(err.message);
+    }
+  });
+
+  $$('[data-detail]',el).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));
+}
+
+function scheduleAvailabilityCheck(form){clearTimeout(availabilityTimer);availabilityTimer=setTimeout(()=>checkAvailabilityUI(form),450)}async function checkAvailabilityUI(form){
+  const hint=$('#availabilityHint');
+  if(!hint)return;
+
+  const assigneeIds=[...form.elements.assigneeIds.selectedOptions].map(o=>o.value);
+  const requestDate=form.elements.requestDate.value;
+  const plannedHours=form.elements.plannedHours.value;
+
+  if(!assigneeIds.length||!requestDate||!plannedHours){
+    hint.className='hint-box';
+    hint.textContent='選擇被派工者、需求日期與預估工時後，系統會逐一檢查行事曆。';
+    return;
+  }
+
+  hint.className='hint-box';
+  hint.textContent=`正在檢查 ${assigneeIds.length} 位人員的行事曆…`;
+
+  try{
+    const results=await Promise.all(
+      assigneeIds.map(async id=>{
+        const result=await rpc('checkAvailability',{
+          assigneeId:id,
+          requestDate,
+          plannedHours
+        });
+
+        return {
+          id,
+          user:users.find(u=>String(u.id)===String(id)),
+          result
+        };
+      })
+    );
+
+    const hasWarning=results.some(x=>x.result.hasWarning);
+    lastAvailability=results;
+
+    hint.className=`hint-box ${hasWarning?'warn':'ok'}`;
+    hint.innerHTML=results.map(x=>`
+      <div class="multi-availability-person">
+        <strong>${escapeHtml(x.user?.displayName||'人員')}</strong>
+        ${availabilityHtml(x.result)}
+      </div>
+    `).join('');
+  }catch(e){
+    hint.className='hint-box warn';
+    hint.textContent=e.message;
+  }
+}
+
 function availabilityHtml(d){const lines=[`預估期間最高 Loading：<strong>${Math.round(d.peakLoadPct)}%</strong>`];if(d.highLoadDates?.length)lines.push(`Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' ('+Math.round(x.loadPct)+'%)').join('、')}`);if(d.holidays?.length)lines.push(`國定假日：${d.holidays.map(x=>escapeHtml(x.holidayName)+' '+fmtDate(x.holidayDate)).join('；')}`);if(d.leaves?.length)lines.push(`請假：${d.leaves.map(x=>escapeHtml(x.leaveType)+' '+fmtLocalDateTime(x.startDateTime)+'～'+fmtLocalDateTime(x.endDateTime)).join('；')}`);if(d.trips?.length)lines.push(`出差：${d.trips.map(x=>escapeHtml(x.purpose)+' '+fmtDate(x.startDate)+'～'+fmtDate(x.endDate)).join('；')}`);if(!d.hasWarning)lines.push('此期間目前沒有 Loading > 80%、國定假日、請假或出差衝突。');return lines.map(x=>`<div class="hint-line">${x}</div>`).join('')}function availabilityConfirmText(d){const parts=['被派工者的行事曆有以下提示：'];if(d.highLoadDates?.length)parts.push(`• Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' '+Math.round(x.loadPct)+'%').join('、')}`);if(d.holidays?.length)parts.push(`• 有 ${d.holidays.length} 個國定假日`);if(d.leaves?.length)parts.push(`• 有 ${d.leaves.length} 筆請假`);if(d.trips?.length)parts.push(`• 有 ${d.trips.length} 筆出差`);parts.push('仍要送出派工嗎？');return parts.join('\n')}
 function renderSchedule(){const el=$('#scheduleView');if(!el)return;const leaveRows=myLeaves.map(x=>`<div class="record-card leave"><div><div class="record-title">${escapeHtml(x.leaveType)}</div><div>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div><div class="mini">只計入週一至週五工作日</div></div><button class="ghost" data-del-leave="${x.id}">刪除</button></div>`).join(''),tripRows=myTrips.map(x=>`<div class="record-card trip"><div><div class="record-title">${escapeHtml(x.purpose)}</div><div>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</div><div class="mini">以天為顆粒度，只計入週一至週五</div></div><button class="ghost" data-del-trip="${x.id}">刪除</button></div>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請假／出差設定</h1><div class="muted">請假可精確到分鐘；出差以天為單位</div></div></div><div class="schedule-grid"><form id="leaveForm" class="form-card"><h3>新增請假</h3><label>假別<input name="leaveType" list="leaveTypes" placeholder="例如：特休" required><datalist id="leaveTypes"><option value="特休"><option value="事假"><option value="病假"><option value="公假"><option value="其他"></datalist></label><label>開始時間<input type="datetime-local" name="startDateTime" step="60" required></label><label>結束時間<input type="datetime-local" name="endDateTime" step="60" required></label><button class="primary">新增請假</button></form><form id="tripForm" class="form-card"><h3>新增出差</h3><label>目的<textarea name="purpose" rows="3" placeholder="例如：台中工廠 UAT Workshop" required></textarea></label><label>開始日期<input type="date" name="startDate" required></label><label>結束日期<input type="date" name="endDate" required></label><button class="primary">新增出差</button></form></div><div class="schedule-grid"><div class="panel panel-pad"><h3>我的請假</h3><div class="record-list">${leaveRows||'<div class="empty">尚無請假紀錄</div>'}</div></div><div class="panel panel-pad"><h3>我的出差</h3><div class="record-list">${tripRows||'<div class="empty">尚無出差紀錄</div>'}</div></div></div>`;$('#leaveForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createLeave',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$('#tripForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createTrip',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$$('[data-del-leave]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此請假紀錄？'))return;try{await rpc('deleteLeave',{id:b.dataset.delLeave});await loadAll();renderSchedule()}catch(e){alert(e.message)}});$$('[data-del-trip]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此出差紀錄？'))return;try{await rpc('deleteTrip',{id:b.dataset.delTrip});await loadAll();renderSchedule()}catch(e){alert(e.message)}})}
 async function renderTeamCalendar(){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);const startDate=isoDate(teamStart),endDate=isoDate(end),cacheKey=`${startDate}|${endDate}`;try{let d=teamCalendarCache.get(cacheKey);if(!d){d=await rpc('teamCalendar',{startDate,endDate});teamCalendarCache.set(cacheKey,d)}drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
@@ -877,8 +1054,12 @@ function drawTeamGantt(data){
 
   members.forEach(m=>{
     html+=`<div class="gantt-cell gantt-name">
-      <div>${escapeHtml(m.displayName)}</div>
-      <div class="mini">${escapeHtml(m.username)}</div>
+      ${me?.role==='admin'
+        ? `<button type="button" class="team-user-link" data-admin-user-work="${m.id}">
+            <span>${escapeHtml(m.displayName)}</span>
+            <span class="mini">${escapeHtml(m.username)}</span>
+          </button>`
+        : `<div>${escapeHtml(m.displayName)}</div><div class="mini">${escapeHtml(m.username)}</div>`}
     </div>`;
 
     dates.forEach(d=>{
@@ -910,8 +1091,522 @@ function drawTeamGantt(data){
 
   html+='</div>';
   wrap.innerHTML=html;
+
+  if(me?.role==='admin'){
+    $$('[data-admin-user-work]',wrap).forEach(b=>{
+      b.addEventListener('click',()=>openAdminUserWork(b.dataset.adminUserWork));
+    });
+  }
 }
 
+
+
+function adminWorkLeaveRecordsOnDate(d){
+  if(!adminUserWorkContext)return[];
+
+  const day=new Date(d);
+  day.setHours(12,0,0,0);
+
+  return (adminUserWorkContext.leaves||[]).filter(x=>{
+    const s=new Date(x.startDateTime),e=new Date(x.endDateTime);
+    if(Number.isNaN(s.getTime())||Number.isNaN(e.getTime()))return false;
+
+    const sd=new Date(s);sd.setHours(0,0,0,0);
+    const ed=new Date(e);ed.setHours(23,59,59,999);
+
+    return day>=sd&&day<=ed;
+  });
+}
+
+function adminWorkLeaveHoursOnDate(date){
+  if(!adminUserWorkContext)return 0;
+
+  const key=String(date).slice(0,10);
+  const dayStart=new Date(`${key}T00:00:00`);
+  const dayEnd=new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate()+1);
+
+  let hours=0;
+
+  (adminUserWorkContext.leaves||[]).forEach(x=>{
+    const s=new Date(x.startDateTime),e=new Date(x.endDateTime);
+    if(Number.isNaN(s.getTime())||Number.isNaN(e.getTime())||e<=s)return;
+
+    const from=s>dayStart?s:dayStart;
+    const to=e<dayEnd?e:dayEnd;
+
+    if(to>from)hours+=(to-from)/3600000;
+  });
+
+  return Math.min(8,Math.max(0,Math.round(hours*100)/100));
+}
+
+function adminWorkHolidayRecordsOnDate(date){
+  const key=String(date).slice(0,10);
+  return (adminUserWorkContext?.holidays||[])
+    .filter(x=>String(x.holidayDate)===key);
+}
+
+async function openAdminUserWork(userId){
+  if(me?.role!=='admin')return;
+
+  adminUserWorkWeekStart=startOfWeek(new Date());
+  await refreshAdminUserWork(userId,false);
+
+  $('#adminUserWorkDialog').showModal();
+}
+
+async function refreshAdminUserWork(userId,keepTaskDialog=false){
+  if(me?.role!=='admin')return;
+
+  const d=await rpc('adminUserWork',{userId});
+  adminUserWorkContext=d;
+
+  $('#adminUserWorkTitle').textContent=`${d.user.displayName}｜工作日曆`;
+  $('#adminUserWorkSubtitle').textContent=`${d.user.username} · Admin 代管模式`;
+
+  renderAdminUserWorkCalendar();
+
+  if(keepTaskDialog&&$('#adminUserTaskDialog').open){
+    const taskId=$('#adminUserTaskDetail').dataset.taskId;
+    if(taskId)openAdminUserTaskDetail(taskId);
+  }
+}
+
+function renderAdminUserWorkCalendar(){
+  const box=$('#adminUserWorkBody');
+  if(!box||!adminUserWorkContext)return;
+
+  const ctx=adminUserWorkContext;
+
+  const renderWeek=(weekStart,index)=>{
+    const days=[0,1,2,3,4,5,6].map(i=>{
+      const d=new Date(weekStart);
+      d.setDate(d.getDate()+i);
+      return d;
+    });
+
+    const names=['一','二','三','四','五','六','日'];
+
+    const headers=days.map((d,i)=>`
+      <div class="calendar-head ${!isWorkdayDate(d)?'weekend':''}">
+        ${names[i]}<br>${d.getMonth()+1}/${d.getDate()}
+      </div>
+    `).join('');
+
+    const cells=days.map(d=>{
+      const date=isoDate(d);
+      const weekday=isWorkdayDate(d);
+      const holidayList=adminWorkHolidayRecordsOnDate(date);
+      const workday=weekday&&holidayList.length===0;
+      const leaves=workday?adminWorkLeaveRecordsOnDate(d):[];
+      const leaveHours=workday?adminWorkLeaveHoursOnDate(date):0;
+      const availableHours=Math.max(0,8-leaveHours);
+      const availableDrop=workday&&availableHours>0;
+
+      const allocations=(ctx.allocations||[])
+        .filter(a=>String(a.workDate)===date)
+        .map(a=>({
+          allocation:a,
+          task:(ctx.tasks||[]).find(t=>String(t.id)===String(a.taskId))
+        }))
+        .filter(x=>x.task&&['accepted','completed'].includes(x.task.status));
+
+      const dayClass=holidayList.length?'holiday-day':!weekday?'weekend':leaves.length?'leave-day':'';
+
+      const notice=holidayList.length
+        ? holidayList.map(x=>`<div class="event-strip holiday">國休｜${escapeHtml(x.holidayName)}</div>`).join('')
+        : !weekday
+          ? '<div class="calendar-block-note">非工作日</div>'
+          : leaves.length
+            ? leaves.map(x=>`<div class="event-strip leave">假｜${escapeHtml(x.leaveType)}<div class="range-label">${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div></div>`).join('')+
+              `<div class="calendar-block-note">${availableHours>0?`可用 ${num(availableHours)}h`:'整天請假・不可排程'}</div>`
+            : '';
+
+      return `<div class="calendar-day ${dayClass} ${availableDrop?'admin-calendar-drop-zone':''}" data-admin-calendar-date="${date}">
+        <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
+        ${notice}
+
+        ${allocations.map(({allocation:a,task:t})=>`
+          <div class="cal-task ${calClass(t)} ${t.status==='accepted'?'draggable-task':''}"
+            data-admin-task-detail="${t.id}"
+            data-admin-allocation-id="${a.id}"
+            draggable="${t.status==='accepted'?'true':'false'}">
+            <div class="cal-task-main">
+              ${t.urgent?'<b>!</b> ':''}${escapeHtml(t.workType)}
+              ${t.isCollaborative?'<span class="cal-collab">共同</span>':''}
+            </div>
+            <div class="cal-hours">${num(a.hours)}h</div>
+          </div>
+        `).join('')}
+      </div>`;
+    }).join('');
+
+    const end=days[6];
+
+    return `<section class="calendar-week-block">
+      <div class="calendar-week-label">
+        <strong>${index===0?'第 1 週':'第 2 週'}</strong>
+        <span>${days[0].getMonth()+1}/${days[0].getDate()} ～ ${end.getMonth()+1}/${end.getDate()}</span>
+      </div>
+      <div class="calendar-grid">${headers}${cells}</div>
+    </section>`;
+  };
+
+  const second=new Date(adminUserWorkWeekStart);
+  second.setDate(second.getDate()+7);
+
+  box.innerHTML=`
+    <div class="admin-work-toolbar">
+      <div class="toolbar">
+        <button class="ghost" id="adminWorkPrev">← 前一週</button>
+        <button class="ghost" id="adminWorkToday">今天</button>
+        <button class="ghost" id="adminWorkNext">後一週 →</button>
+      </div>
+      <div class="muted">Admin 可直接拖拉該人員的 Loading；點工作可修改內容與狀態。</div>
+    </div>
+
+    <div class="two-week-calendar">
+      ${renderWeek(adminUserWorkWeekStart,0)}
+      ${renderWeek(second,1)}
+    </div>`;
+
+  $('#adminWorkPrev').onclick=()=>{
+    adminUserWorkWeekStart.setDate(adminUserWorkWeekStart.getDate()-7);
+    renderAdminUserWorkCalendar();
+  };
+
+  $('#adminWorkToday').onclick=()=>{
+    adminUserWorkWeekStart=startOfWeek(new Date());
+    renderAdminUserWorkCalendar();
+  };
+
+  $('#adminWorkNext').onclick=()=>{
+    adminUserWorkWeekStart.setDate(adminUserWorkWeekStart.getDate()+7);
+    renderAdminUserWorkCalendar();
+  };
+
+  bindAdminUserWorkCalendar();
+}
+
+function bindAdminUserWorkCalendar(){
+  const root=$('#adminUserWorkBody');
+  if(!root||!adminUserWorkContext)return;
+
+  let draggedId='';
+
+  $$('[data-admin-task-detail]',root).forEach(el=>{
+    el.addEventListener('click',()=>openAdminUserTaskDetail(el.dataset.adminTaskDetail));
+
+    if(el.getAttribute('draggable')!=='true')return;
+
+    el.addEventListener('dragstart',e=>{
+      draggedId=el.dataset.adminAllocationId;
+      el.classList.add('dragging');
+
+      if(e.dataTransfer){
+        e.dataTransfer.effectAllowed='move';
+        e.dataTransfer.setData('text/plain',draggedId);
+      }
+    });
+
+    el.addEventListener('dragend',()=>{
+      el.classList.remove('dragging');
+      $$('.admin-calendar-drop-zone.drag-over',root).forEach(x=>x.classList.remove('drag-over'));
+      draggedId='';
+    });
+  });
+
+  $$('.admin-calendar-drop-zone',root).forEach(day=>{
+    day.addEventListener('dragover',e=>{
+      e.preventDefault();
+      day.classList.add('drag-over');
+    });
+
+    day.addEventListener('dragleave',e=>{
+      if(!day.contains(e.relatedTarget))day.classList.remove('drag-over');
+    });
+
+    day.addEventListener('drop',async e=>{
+      e.preventDefault();
+      day.classList.remove('drag-over');
+
+      const allocationId=(e.dataTransfer&&e.dataTransfer.getData('text/plain'))||draggedId;
+      if(!allocationId)return;
+
+      const source=(adminUserWorkContext.allocations||[])
+        .find(a=>String(a.id)===String(allocationId));
+
+      if(!source)return;
+
+      const targetDate=day.dataset.adminCalendarDate;
+
+      const same=(adminUserWorkContext.allocations||[]).filter(a=>
+        String(a.taskId)===String(source.taskId)&&
+        String(a.workDate)===String(targetDate)&&
+        String(a.id)!==String(source.id)
+      );
+
+      let merge=false;
+
+      if(same.length){
+        merge=confirm('目標日期已有相同任務。\n\n按「確定」合併工時；按「取消」保留獨立區塊。');
+      }
+
+      try{
+        await rpc('moveAllocation',{allocationId,targetDate,merge});
+        await refreshAdminUserWork(adminUserWorkContext.user.id,false);
+      }catch(err){
+        alert(err.message);
+      }
+    });
+  });
+}
+
+function openAdminUserTaskDetail(taskId){
+  if(!adminUserWorkContext)return;
+
+  const t=(adminUserWorkContext.tasks||[])
+    .find(x=>String(x.id)===String(taskId));
+
+  if(!t)return;
+
+  const allocations=(adminUserWorkContext.allocations||[])
+    .filter(a=>String(a.taskId)===String(t.id))
+    .sort((a,b)=>String(a.workDate).localeCompare(String(b.workDate)));
+
+  const scheduled=allocations.reduce((s,a)=>s+Number(a.hours||0),0);
+
+  const box=$('#adminUserTaskDetail');
+  box.dataset.taskId=t.id;
+
+  box.innerHTML=`
+    <div class="detail-grid">
+      <div class="k">工作類型</div>
+      <div><input id="adminWorkType" value="${attr(t.workType)}" ${t.status==='cancelled'?'disabled':''}></div>
+
+      <div class="k">需求內容</div>
+      <div><textarea id="adminWorkContent" rows="5" ${t.status==='cancelled'?'disabled':''}>${escapeHtml(t.content)}</textarea></div>
+
+      <div class="k">負責人</div><div>${escapeHtml(t.assigneeName)}</div>
+      <div class="k">派工者</div><div>${escapeHtml(t.requesterName)}</div>
+      <div class="k">狀態</div><div><span class="badge ${t.status}">${statusText(t.status)}</span></div>
+
+      <div class="k">需求日期</div>
+      <div>
+        ${t.selfAssigned&&t.status==='accepted'
+          ? `<input id="adminWorkRequestDate" type="date" value="${attr(t.requestDate)}">`
+          : fmtDate(t.requestDate)}
+      </div>
+
+      <div class="k">預估總工時</div>
+      <div><input id="adminWorkPlannedHours" type="number" min="0.01" max="999" step="0.01" value="${num(t.plannedHours)}" ${t.status==='cancelled'?'disabled':''}></div>
+
+      <div class="k">公開屬性</div>
+      <div>
+        <select id="adminWorkVisibility" ${t.status==='cancelled'?'disabled':''}>
+          <option value="public" ${t.visibility!=='private'?'selected':''}>公開</option>
+          <option value="private" ${t.visibility==='private'?'selected':''}>私人</option>
+        </select>
+      </div>
+
+      <div class="k">Admin 操作</div>
+      <div class="row-actions admin-work-actions">
+        ${t.status!=='cancelled'?'<button type="button" class="secondary" id="adminSaveTaskContent">更新內容</button>':''}
+        ${t.status!=='cancelled'?'<button type="button" class="secondary" id="adminSaveTaskHours">更新總工時</button>':''}
+        ${t.selfAssigned&&t.status==='accepted'?'<button type="button" class="secondary" id="adminSaveRequestDate">更新需求日期</button>':''}
+        ${t.status!=='cancelled'?'<button type="button" class="secondary" id="adminSaveVisibility">更新公開屬性</button>':''}
+        ${['accepted','completed'].includes(t.status)?`<button type="button" class="ghost" id="adminToggleUrgent">${t.urgent?'取消緊急':'標示緊急'}</button>`:''}
+        ${['accepted','completed'].includes(t.status)?`<button type="button" class="secondary" id="adminToggleCompleted">${t.status==='completed'?'改回未完成':'完成'}</button>`:''}
+        ${!['completed','rejected','cancelled'].includes(t.status)?'<button type="button" class="danger" id="adminStopTask">中止任務</button>':''}
+      </div>
+    </div>
+
+    ${['accepted','completed'].includes(t.status)?`
+      <div class="allocation-detail">
+        <h4>${escapeHtml(adminUserWorkContext.user.displayName)} 的日曆排程</h4>
+        <div class="allocation-total">已排 ${num(scheduled)}h / 預估 ${num(t.plannedHours)}h</div>
+
+        ${allocations.length
+          ? allocations.map(a=>`
+            <div class="allocation-row">
+              <div><strong>${fmtDate(a.workDate)}</strong> <span>${num(a.hours)}h</span></div>
+              ${t.status==='accepted'
+                ? `<div class="allocation-row-actions">
+                    <button type="button" class="secondary" data-admin-move="${a.id}">移動日期</button>
+                    <button type="button" class="secondary" data-admin-split="${a.id}">比例分拆</button>
+                  </div>`
+                : ''}
+            </div>
+          `).join('')
+          : '<div class="mini">目前沒有日排程。</div>'}
+      </div>
+    `:''}
+  `;
+
+  const refresh=async()=>{
+    await refreshAdminUserWork(adminUserWorkContext.user.id,true);
+  };
+
+  $('#adminSaveTaskContent')?.addEventListener('click',async()=>{
+    try{
+      await rpc('adminUpdateTaskDetails',{
+        taskId:t.id,
+        workType:$('#adminWorkType').value.trim(),
+        content:$('#adminWorkContent').value.trim()
+      });
+      await refresh();
+    }catch(err){alert(err.message)}
+  });
+
+  $('#adminSaveTaskHours')?.addEventListener('click',async()=>{
+    try{
+      await rpc('updateTaskPlannedHours',{
+        taskId:t.id,
+        plannedHours:$('#adminWorkPlannedHours').value
+      });
+      await refresh();
+    }catch(err){alert(err.message)}
+  });
+
+  $('#adminSaveRequestDate')?.addEventListener('click',async()=>{
+    try{
+      await rpc('updateSelfTaskRequestDate',{
+        taskId:t.id,
+        requestDate:$('#adminWorkRequestDate').value
+      });
+      await refresh();
+    }catch(err){alert(err.message)}
+  });
+
+  $('#adminSaveVisibility')?.addEventListener('click',async()=>{
+    try{
+      await rpc('setTaskVisibility',{
+        taskId:t.id,
+        visibility:$('#adminWorkVisibility').value
+      });
+      await refresh();
+    }catch(err){alert(err.message)}
+  });
+
+  $('#adminToggleUrgent')?.addEventListener('click',async()=>{
+    try{
+      await rpc('setUrgent',{taskId:t.id,urgent:!t.urgent});
+      await refresh();
+    }catch(err){alert(err.message)}
+  });
+
+  $('#adminToggleCompleted')?.addEventListener('click',async()=>{
+    try{
+      await rpc('setCompleted',{
+        taskId:t.id,
+        completed:t.status!=='completed'
+      });
+      await refresh();
+    }catch(err){alert(err.message)}
+  });
+
+  $('#adminStopTask')?.addEventListener('click',async()=>{
+    if(!confirm(`確定中止「${t.workType}」？`))return;
+
+    try{
+      await rpc('stopTask',{taskId:t.id});
+      $('#adminUserTaskDialog').close();
+      await refreshAdminUserWork(adminUserWorkContext.user.id,false);
+    }catch(err){alert(err.message)}
+  });
+
+  $$('[data-admin-move]',box).forEach(b=>{
+    b.addEventListener('click',()=>adminPromptMoveAllocation(b.dataset.adminMove));
+  });
+
+  $$('[data-admin-split]',box).forEach(b=>{
+    b.addEventListener('click',()=>adminPromptSplitAllocation(b.dataset.adminSplit));
+  });
+
+  if(!$('#adminUserTaskDialog').open){
+    $('#adminUserTaskDialog').showModal();
+  }
+}
+
+async function adminPromptMoveAllocation(allocationId){
+  if(!adminUserWorkContext)return;
+
+  const a=(adminUserWorkContext.allocations||[])
+    .find(x=>String(x.id)===String(allocationId));
+
+  if(!a)return;
+
+  const targetDate=prompt(
+    `目前日期：${a.workDate}\n請輸入移動目標日期（YYYY-MM-DD）`,
+    a.workDate
+  );
+
+  if(!targetDate||targetDate===a.workDate)return;
+
+  const same=(adminUserWorkContext.allocations||[]).filter(x=>
+    String(x.taskId)===String(a.taskId)&&
+    String(x.workDate)===String(targetDate)&&
+    String(x.id)!==String(a.id)
+  );
+
+  let merge=false;
+  if(same.length){
+    merge=confirm('目標日期已有相同任務，是否合併？');
+  }
+
+  try{
+    await rpc('moveAllocation',{allocationId,targetDate,merge});
+    await refreshAdminUserWork(adminUserWorkContext.user.id,true);
+  }catch(err){
+    alert(err.message);
+  }
+}
+
+async function adminPromptSplitAllocation(allocationId){
+  if(!adminUserWorkContext)return;
+
+  const a=(adminUserWorkContext.allocations||[])
+    .find(x=>String(x.id)===String(allocationId));
+
+  if(!a)return;
+
+  const targetDate=prompt('請輸入分拆目標日期（YYYY-MM-DD）');
+  if(!targetDate)return;
+
+  const percentRaw=prompt('要移動多少比例？請輸入 1～99', '50');
+  if(percentRaw===null)return;
+
+  const movePercent=Number(percentRaw);
+  if(!Number.isFinite(movePercent)||movePercent<=0||movePercent>=100){
+    alert('比例必須介於 1～99');
+    return;
+  }
+
+  const same=(adminUserWorkContext.allocations||[]).filter(x=>
+    String(x.taskId)===String(a.taskId)&&
+    String(x.workDate)===String(targetDate)&&
+    String(x.id)!==String(a.id)
+  );
+
+  let mergeTarget=false;
+  if(same.length){
+    mergeTarget=confirm('目標日期已有相同任務，是否把分拆工時合併到既有區塊？');
+  }
+
+  try{
+    await rpc('splitAllocation',{
+      allocationId,
+      targetDate,
+      movePercent,
+      mergeTarget
+    });
+
+    await refreshAdminUserWork(adminUserWorkContext.user.id,true);
+  }catch(err){
+    alert(err.message);
+  }
+}
 
 async function loadAdminTasks(){
   if(me?.role!=='admin')return;

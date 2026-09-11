@@ -1,113 +1,119 @@
-# Team Dispatch v2.3.0
+# Team Dispatch v2.4.0
 
-## 共同作業
+## 1. 請別人協助：多重派工
 
-「新增自己的工作」可以勾選：
-`此任務為共同作業`
+新增派工的「被派工者」可一次選擇多人。
 
-並選擇一位以上共同作業人員。
-
-共同作業不是拆分總工時。
+多重派工不是共同作業。
 
 例如：
-- 任務預估總工時 5h
-- Evon + A + B 三人共同作業
+- 工作：UAT
+- 預估工時：5h
+- 被派工者：A、B、C
 
-每人都是：
-- Evon = 5h
-- A = 5h
-- B = 5h
+系統建立三筆彼此獨立的 Task：
+- A / UAT / 5h / pending
+- B / UAT / 5h / pending
+- C / UAT / 5h / pending
 
-因此系統總 Loading 會增加 15h。
+因此：
+- A 可以接受，B 可以拒絕
+- 每個人都各自負荷 5h
+- 每個人的 Loading、請假、同日接單、逾期規則都與單一派工完全相同
+- 不會因 A 接單而一起改變 B / C 的狀態
 
-### 排程獨立
-同一 Task 的 TaskAllocations 以：
-`taskId + userId`
-分開管理。
+送出前會逐一檢查每一位人員：
+- Loading
+- 請假
+- 國定假日
+- 出差
+- 整天請假是否禁止派工
 
-例如預設五天各 1h：
-- A 可拖成 2h / 2h / 1h
-- B 仍維持 1h / 1h / 1h / 1h / 1h
-- Evon 也可有自己的分配
+如果任一被派工者今天整天請假，整批派工不送出，避免只成功一半。
 
-互不影響。
+## 2. Admin：從團隊出勤直接管理 User 工作
 
-### 逾期
-共同作業人員各自遵守逾期規則。
+Admin 登入後，在：
+`團隊出勤`
 
-若 5h 任務逾期：
-- 每一位共同作業人員自己的 TaskAllocations
-- 都會各自收斂成「今天 5h」
+人員名稱改成可點擊。
 
-不會把所有人的工時合併成一筆。
+點擊後開啟該 User 的兩週工作日曆。
 
-### 我的工作
-所有共同作業人員都能在「我的工作」看到該任務。
-工作清單顯示：
-`共同作業`
+Admin 可以直接替該 User：
+- 跨週拖拉 Loading
+- 移動日期
+- 比例分拆
+- 修改工作類型
+- 修改需求內容
+- 修改預估總工時
+- 自派工作可修改需求日期
+- 修改公開 / 私人
+- 標示 / 取消緊急
+- 完成 / 改回未完成
+- 中止任務
 
-日曆也會有「共同」標籤。
+所有 Allocation 仍然維持在該 User 名下，不會移到 Admin 身上。
 
-### 任務儀表板
-公開任務的負責人會一次顯示：
-`Evon、A、B`
+共同作業時：
+Admin 點 A，只會拖拉 A 自己的 TaskAllocations；
+B / C 的排程不受影響。
 
-### 當週任務中止
-同一任務名稱 + 相同需求日的中止任務會合併顯示。
-負責人會去重後一起顯示。
+## Admin 權限修正
 
-不同需求日仍不合併，延續先前規則。
+v2.4.0 同時重新整理後端權限：
 
-## 資料更新 UI
-凡需要重新向 Apps Script / Google Sheet 讀取資料的操作，
-全頁過場標題統一顯示：
-`資料更新中`
+以下既有 API 在 role=admin 時允許管理其他 User 的任務：
+- updateTaskDetails
+- updateTaskPlannedHours
+- updateSelfTaskRequestDate
+- setTaskVisibility
+- setUrgent
+- setCompleted
+- stopTask
+- moveAllocation
+- splitAllocation
 
-派工可用性檢查仍採表單內：
-`正在檢查行事曆…`
-避免每次輸入都被全頁遮罩。
+move / split 仍使用 Allocation 本身的 userId 驗證：
+- 請假
+- 國定假日
+- 可排程期間
 
-## 效率優化
-本版重點優化 Team Calendar：
+所以 Admin 不會套用自己的請假狀態到被管理者身上。
 
-舊版：
-每一位使用者都會重新讀一次 Tasks / TaskAllocations。
+## 新增讀取 API
 
-新版：
-整個團隊檢視只讀一次：
-- Users
+新增：
+`adminUserWork`
+
+只允許 Admin。
+
+一次讀取該 User：
+- Tasks
+- TaskAllocations
 - Leaves
 - Trips
 - Holidays
-- Tasks
-- TaskAllocations
 
-之後在記憶體中依人員計算 Loading。
+並在開啟時套用：
+- Allocation 補齊
+- 逾期 Loading 收斂
 
-因此人數與任務數增加時，Google Sheet I/O 次數不再跟人數線性重複。
+畫面會走既有「資料更新中」UI。
 
-另外共同作業的 Loading / Allocation 查找改成：
-`taskId + userId`
-避免同一 Task 的不同人員排程互相覆蓋。
+## 升級
 
-## 資料表變更
-Tasks 新增欄位：
-`collaboratorIds`
+沒有新增 Google Sheet 欄位，因此：
+- 不需要初始化 / 修復資料表
 
-內容以 JSON 字串保存，例如：
-`["USR_xxx","USR_yyy"]`
-
-既有任務空白代表沒有共同作業人員。
-
-## 從 v2.2.1 升級
-這次必須執行一次：
-`Team Dispatch → 初始化 / 修復資料表`
-
-部署順序：
-1. Apps Script 更新 Code.gs
+Apps Script：
+1. 更新 Code.gs
 2. 儲存
-3. 回 Google Sheet 執行「初始化 / 修復資料表」
-4. 部署既有 Web App 的新版本 v2.3.0
-5. GitHub 更新 index.html / app.js / styles.css
-6. config.js 保留
-7. GitHub Pages 完成後 Ctrl + F5
+3. 部署既有 Web App 新版本 v2.4.0
+
+GitHub：
+- 更新 index.html
+- 更新 app.js
+- 更新 styles.css
+
+config.js 保留。
