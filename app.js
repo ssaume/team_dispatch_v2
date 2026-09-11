@@ -904,7 +904,7 @@ function openDetail(id){
     : [];
 
   const allocationHtml=isMyTaskParticipant(t)&&['accepted','completed'].includes(t.status)
-    ? `<div class="allocation-detail" id="taskScheduleEditor">
+    ? `<section class="task-detail-section allocation-detail" id="taskScheduleEditor">
         <h4>日曆排程</h4>
 
         ${canEditSchedule
@@ -952,82 +952,185 @@ function openDetail(id){
                    <div>${num(a.hours)}h</div>
                  </div>`).join('')
                : '<div class="mini">目前沒有可顯示的日排程。</div>'}`}
-      </div>`
+      </section>`
     : '';
 
-  $('#taskDetail').innerHTML=`<div class="detail-grid">
-    <div class="k">工作類型</div>
-    <div>
+  $('#taskDetail').innerHTML=`
+  <div class="task-detail-summary">
+    <div class="task-detail-summary-main">
+      <div class="task-detail-eyebrow">工作任務</div>
+      <h2>${escapeHtml(t.workType)}</h2>
+      <div class="task-detail-badges">
+        <span class="badge ${t.status}">${statusText(t.status)}</span>
+        ${t.urgent?'<span class="urgent">!</span>':''}
+        <span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span>
+        ${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}
+      </div>
+    </div>
+
+    <div class="task-summary-grid">
+      <div class="task-summary-item">
+        <span>需求日</span>
+        <strong>${fmtDate(t.requestDate)}</strong>
+      </div>
+      <div class="task-summary-item">
+        <span>預估工時</span>
+        <strong>${num(t.plannedHours)}h</strong>
+      </div>
+      <div class="task-summary-item">
+        <span>派工者</span>
+        <strong>${escapeHtml(t.requesterName)}</strong>
+      </div>
+      <div class="task-summary-item">
+        <span>負責人</span>
+        <strong>${escapeHtml(t.assigneeName)}</strong>
+      </div>
+    </div>
+  </div>
+
+  <section class="task-detail-section">
+    <div class="task-section-title">
+      <div>
+        <h3>工作內容</h3>
+        <div class="mini">任務標題與需求內容</div>
+      </div>
+    </div>
+
+    <label class="task-field">
+      <span>工作類型</span>
       <input id="taskWorkTypeInput" list="taskTitleOptionsDetail" value="${attr(t.workType)}" ${t.status==='cancelled'?'disabled':''}>
       <datalist id="taskTitleOptionsDetail">${taskTitleOptionsHtml()}</datalist>
-    </div>
-    <div class="k">需求內容</div>
-    <div>
+    </label>
+
+    <label class="task-field">
+      <span>需求內容</span>
       <textarea id="taskContentInput" rows="5" ${t.status==='cancelled'?'disabled':''}>${escapeHtml(t.content)}</textarea>
-      ${t.status!=='cancelled'?'<button type="button" id="saveTaskDetails" class="secondary task-detail-save">更新工作內容</button>':''}
-    </div>
-    <div class="k">派工者</div><div>${escapeHtml(t.requesterName)}</div>
-    <div class="k">負責人</div><div>${escapeHtml(t.assigneeName)} ${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}</div>
-    ${t.status==='accepted'&&String(t.assigneeId)===String(me.id)?`
-      <div class="k">新增共同作業</div>
+    </label>
+
+    ${t.status!=='cancelled'
+      ? '<div class="task-section-actions"><button type="button" id="saveTaskDetails" class="secondary">更新工作內容</button></div>'
+      : ''}
+  </section>
+
+  <details class="task-detail-section task-detail-fold">
+    <summary>
       <div>
-        <select id="addCollaboratorSelect" multiple size="4">
-          ${users
-            .filter(u=>u.active&&String(u.id)!==String(me.id))
-            .map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`)
-            .join('')}
-        </select>
-        <button type="button" id="addCollaboratorBtn" class="secondary">指派共同作業</button>
-        <div class="mini">被指派者會建立獨立 Task，負荷完整預估總工時，並依自己的請假/工作日建立排程與 Loading。</div>
-      </div>`:''}
-    <div class="k">任務類型</div><div>${t.isPeriodic?`週期工作（第 ${t.periodIndex}/${t.periodCount} 期 · ${t.periodCadenceWeeks===2?'雙週':'每週'} · ${fmtDate(t.periodStartDate)} ～ ${fmtDate(t.requestDate)}）`:'一般工作'}</div>
-    <div class="k">需求日期</div>
-    <div>
-      ${t.selfAssigned&&t.status==='accepted'&&String(t.assigneeId)===String(me.id)
-        ? `<div class="request-date-edit">
-            <input id="taskRequestDateInput" type="date" value="${attr(t.requestDate)}">
-            <button type="button" id="saveTaskRequestDate" class="secondary">更新需求日期</button>
-          </div>
-          <div class="mini">僅自己派給自己的進行中任務可調整；若日期往前縮，超出的排程會自動收回新期間內。</div>`
-        : fmtDate(t.requestDate)}
-    </div>
-    <div class="k">預估總工時</div>
-    <div>
-      <div class="planned-hours-edit">
-        <input id="taskPlannedHoursInput" type="number" min="0.01" max="999" step="0.01" value="${num(t.plannedHours)}">
-        <span>小時</span>
-        <button type="button" id="saveTaskPlannedHours" class="secondary">更新總工時</button>
+        <h3>任務設定</h3>
+        <div class="mini">需求日、總工時、公開屬性與共同作業</div>
       </div>
-      <div class="mini">若已拖拉／合併／分拆，更新後會依目前各日期工時比例重新分配。</div>
+      <span class="task-fold-indicator"></span>
+    </summary>
+
+    <div class="task-fold-body">
+      <div class="task-setting-grid">
+        <div class="task-setting-item">
+          <div class="task-setting-label">任務類型</div>
+          <div>${t.isPeriodic
+            ? `週期工作（第 ${t.periodIndex}/${t.periodCount} 期 · ${t.periodCadenceWeeks===2?'雙週':'每週'} · ${fmtDate(t.periodStartDate)} ～ ${fmtDate(t.requestDate)}）`
+            : '一般工作'}</div>
+        </div>
+
+        <div class="task-setting-item">
+          <div class="task-setting-label">需求日期</div>
+          <div>
+            ${t.selfAssigned&&t.status==='accepted'&&String(t.assigneeId)===String(me.id)
+              ? `<div class="request-date-edit">
+                  <input id="taskRequestDateInput" type="date" value="${attr(t.requestDate)}">
+                  <button type="button" id="saveTaskRequestDate" class="secondary">更新</button>
+                </div>
+                <div class="mini">日期往前縮時，超出的排程會收回有效期間內。</div>`
+              : `<strong>${fmtDate(t.requestDate)}</strong>`}
+          </div>
+        </div>
+
+        <div class="task-setting-item">
+          <div class="task-setting-label">預估總工時</div>
+          <div>
+            <div class="planned-hours-edit">
+              <input id="taskPlannedHoursInput" type="number" min="0.01" max="999" step="0.01" value="${num(t.plannedHours)}">
+              <span>小時</span>
+              <button type="button" id="saveTaskPlannedHours" class="secondary">更新</button>
+            </div>
+            <div class="mini">更新後依目前各工作日工時比例重新配比。</div>
+          </div>
+        </div>
+
+        <div class="task-setting-item">
+          <div class="task-setting-label">公開屬性</div>
+          <div>
+            <div class="task-inline-controls">
+              <select id="taskVisibilitySelect" class="inline-visibility-select">
+                <option value="public" ${t.visibility!=='private'?'selected':''}>公開</option>
+                <option value="private" ${t.visibility==='private'?'selected':''}>私人</option>
+              </select>
+              <button type="button" id="saveTaskVisibility" class="secondary">更新</button>
+            </div>
+            <div class="mini">僅影響免登入任務儀表板。</div>
+          </div>
+        </div>
+
+        ${t.status==='accepted'&&String(t.assigneeId)===String(me.id)?`
+          <div class="task-setting-item task-setting-wide">
+            <div class="task-setting-label">新增共同作業</div>
+            <div>
+              <select id="addCollaboratorSelect" multiple size="4">
+                ${users
+                  .filter(u=>u.active&&String(u.id)!==String(me.id))
+                  .map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`)
+                  .join('')}
+              </select>
+              <div class="task-section-actions">
+                <button type="button" id="addCollaboratorBtn" class="secondary">指派共同作業</button>
+              </div>
+              <div class="mini">新成員各自負荷完整預估總工時，並建立自己的排程與 Loading。</div>
+            </div>
+          </div>`:''}
+      </div>
     </div>
-    <div class="k">是否公開</div>
-    <div>
-      <span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span>
-      <select id="taskVisibilitySelect" class="inline-visibility-select">
-        <option value="public" ${t.visibility!=='private'?'selected':''}>公開</option>
-        <option value="private" ${t.visibility==='private'?'selected':''}>私人</option>
-      </select>
-      <button type="button" id="saveTaskVisibility" class="secondary visibility-save-btn">更新</button>
-      <div class="mini">此設定只影響免登入儀表板，不影響 Loading 或排程。</div>
+  </details>
+
+  ${allocationHtml}
+
+  <details class="task-detail-section task-detail-fold task-history">
+    <summary>
+      <div>
+        <h3>歷程紀錄</h3>
+        <div class="mini">建立、接單、完成與異常原因</div>
+      </div>
+      <span class="task-fold-indicator"></span>
+    </summary>
+    <div class="task-fold-body">
+      <div class="task-history-grid">
+        <div><span>建立時間</span><strong>${fmtDateTime(t.createdAt)}</strong></div>
+        <div><span>接單時間</span><strong>${fmtDateTime(t.acceptedAt)}</strong></div>
+        <div><span>完成時間</span><strong>${fmtDateTime(t.completedAt)}</strong></div>
+        <div><span>目前狀態</span><strong>${statusText(t.status)}</strong></div>
+        ${t.rejectionReason?`<div class="task-history-wide"><span>拒絕理由</span><strong>${escapeHtml(t.rejectionReason)}</strong></div>`:''}
+        ${t.cancelledReason?`<div class="task-history-wide"><span>中止理由</span><strong>${escapeHtml(t.cancelledReason)}</strong></div>`:''}
+      </div>
     </div>
-    <div class="k">狀態</div><div>${statusText(t.status)} ${t.urgent?'<span class="urgent">!</span>':''}</div>
-    <div class="k">建立時間</div><div>${fmtDateTime(t.createdAt)}</div>
-    <div class="k">接單時間</div><div>${fmtDateTime(t.acceptedAt)}</div>
-    <div class="k">完成時間</div><div>${fmtDateTime(t.completedAt)}</div>
-    <div class="k">拒絕理由</div><div>${escapeHtml(t.rejectionReason||'-')}</div>
-    <div class="k">中止理由</div><div>${escapeHtml(t.cancelledReason||'-')}</div>
-  </div>
+  </details>
+
   ${!['completed','rejected','cancelled'].includes(t.status)?`
-    <div class="task-stop-zone">
+    <section class="task-detail-section task-danger-zone">
+      <div>
+        <h3>任務操作</h3>
+        <div class="mini">${t.isCollaborative
+          ? '中止只影響你自己的共同作業任務，不影響其他共同作業者。'
+          : '中止後不再計入 Loading，也不再顯示於工作日曆。'}</div>
+      </div>
       <button type="button" id="stopTaskBtn" class="danger">中止任務</button>
-      <div class="mini">${t.isCollaborative?'只會中止你自己的共同作業任務，不影響其他共同作業者。':'中止後不再計入 Loading，也不再顯示於工作日曆與公開儀表板。'}</div>
-    </div>`:''}
+    </section>`:''}
+
   ${t.status==='cancelled'?`
-    <div class="task-stop-zone">
+    <section class="task-detail-section task-restart-zone">
+      <div>
+        <h3>重新啟動</h3>
+        <div class="mini">從重啟日到需求日重新平均分配完整預估工時。</div>
+      </div>
       <button type="button" id="restartTaskBtn" class="secondary">重新啟動任務</button>
-      <div class="mini">重新啟動後，會從重啟日到需求日重新平均分配完整預估工時。</div>
-    </div>`:''}
-  ${allocationHtml}`;
+    </section>`:''}
+  `;
 
   if(canEditSchedule){
     bindTaskScheduleEditorEvents(t);
