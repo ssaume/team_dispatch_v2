@@ -14,6 +14,25 @@ function leaveRecordsOnDate(d){
   });
 }
 
+
+function leaveHoursOnDateClient(d){
+  const key=typeof d==='string'?String(d).slice(0,10):isoDate(new Date(d));
+  const dayStart=new Date(`${key}T00:00:00`);
+  const dayEnd=new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate()+1);
+
+  let hours=0;
+  myLeaves.forEach(x=>{
+    const s=new Date(x.startDateTime),e=new Date(x.endDateTime);
+    if(Number.isNaN(s.getTime())||Number.isNaN(e.getTime())||e<=s)return;
+    const from=s>dayStart?s:dayStart;
+    const to=e<dayEnd?e:dayEnd;
+    if(to>from)hours+=(to-from)/3600000;
+  });
+
+  return Math.min(8,Math.max(0,Math.round(hours*100)/100));
+}
+
 function holidayRecordsOnDate(d){
   const key=typeof d==='string'?String(d).slice(0,10):isoDate(new Date(d));
   return holidays.filter(x=>String(x.holidayDate)===key);
@@ -719,8 +738,10 @@ function renderCalendar(){
       const holidayList=holidayRecordsOnDate(date);
       const workday=weekday&&holidayList.length===0;
       const leaves=workday?leaveRecordsOnDate(d):[];
-      const availableDrop=workday&&leaves.length===0;
-      const allocations=availableDrop
+      const leaveHours=workday?leaveHoursOnDateClient(date):0;
+      const availableHours=Math.max(0,8-leaveHours);
+      const availableDrop=workday&&availableHours>0;
+      const allocations=workday
         ? myAllocations.filter(a=>String(a.workDate)===date).map(a=>({allocation:a,task:incoming.find(t=>String(t.id)===String(a.taskId))})).filter(x=>x.task&&['accepted','completed'].includes(x.task.status))
         : [];
       const dayClass=holidayList.length?'holiday-day':!weekday?'weekend':leaves.length?'leave-day':'';
@@ -729,7 +750,8 @@ function renderCalendar(){
         : !weekday
           ? `<div class="calendar-block-note">非工作日</div>`
           : leaves.length
-            ? leaves.map(x=>`<div class="event-strip leave">假｜${escapeHtml(x.leaveType)}<div class="range-label">${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div></div>`).join('')
+            ? leaves.map(x=>`<div class="event-strip leave">假｜${escapeHtml(x.leaveType)}<div class="range-label">${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div></div>`).join('')+
+              `<div class="calendar-block-note">${availableHours>0?`可用 ${num(availableHours)}h`:'整天請假・不可派工'}</div>`
             : '';
       return `<div class="calendar-day ${dayClass} ${availableDrop?'calendar-drop-zone':''}" data-calendar-date="${date}">
         <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
@@ -860,22 +882,25 @@ function drawTeamGantt(data){
     </div>`;
 
     dates.forEach(d=>{
-      const cell=m.days[d]||{loadPct:0,leaveLabels:[],tripLabels:[],holidayLabels:[],workday:true};
+      const cell=m.days[d]||{loadPct:0,leaveLabels:[],tripLabels:[],holidayLabels:[],workday:true,leaveHours:0,availableHours:8};
       const hasHoliday=(cell.holidayLabels||[]).length>0;
       const cls=hasHoliday?'holiday-cell':!cell.workday?'weekend':'';
       const hasLeave=(cell.leaveLabels||[]).length>0;
+      const availableHours=Math.max(0,Number(cell.availableHours??8));
 
       let chip='';
-      if(cell.workday&&!hasLeave&&!hasHoliday){
+      if(cell.workday&&availableHours>0&&!hasHoliday){
         const pct=Math.max(0,Number(cell.loadPct)||0);
         const c=pct>100?'over':pct>80?'high':'';
-        chip=`<span class="load-chip ${c}" title="Loading ${Math.round(pct)}%">${Math.round(pct)}%</span>`;
+        const title=hasLeave?`可用 ${num(availableHours)}h · Loading ${Math.round(pct)}%`:`Loading ${Math.round(pct)}%`;
+        chip=`<span class="load-chip ${c}" title="${title}">${Math.round(pct)}%</span>`;
       }
 
       const holidayHtml=(cell.holidayLabels||[])
         .map(x=>`<div class="event-strip holiday">國休｜${escapeHtml(x)}</div>`).join('');
       const leaves=(cell.leaveLabels||[])
-        .map(x=>`<div class="event-strip leave">假｜${escapeHtml(x)}</div>`).join('');
+        .map(x=>`<div class="event-strip leave">假｜${escapeHtml(x)}</div>`).join('')+
+        (hasLeave?`<div class="mini">${availableHours>0?`可用 ${num(availableHours)}h`:'整天請假・不可派工'}</div>`:'');
       const trips=(cell.tripLabels||[])
         .map(x=>`<div class="event-strip trip">出｜${escapeHtml(x)}</div>`).join('');
 

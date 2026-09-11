@@ -343,3 +343,9 @@ button.danger:hover{background:#fff0f2}
 #selfTaskCollaborators{
   min-height:120px;
 }
+
+/* v2.3.1 partial-day leave capacity */
+.leave-day.calendar-drop-zone{
+  outline:1px dashed rgba(184,117,53,.35);
+  outline-offset:-2px;
+}
