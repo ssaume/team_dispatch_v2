@@ -319,6 +319,13 @@ function renderPublicDashboard(d){
 
 
 
+
+function fmtTimeOnly(v){
+  const d=new Date(v);
+  if(Number.isNaN(d.getTime()))return '-';
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
 function dashboardTodayLeaveHtml(rows){
   if(!rows.length){
     return '<div class="dashboard-empty">今天沒有休假人員。</div>';
@@ -329,8 +336,8 @@ function dashboardTodayLeaveHtml(rows){
       <div class="today-leave-card ${x.fullDay?'full-day':''}">
         <strong>${escapeHtml(x.displayName)}</strong>
         <span>${x.fullDay
-          ? '整天休假'
-          : `休假 ${num(x.leaveHours)}h · 可用 ${num(x.availableHours)}h`}</span>
+          ? `整天休假 · 起始 ${fmtTimeOnly(x.leaveStartAt)}`
+          : `休假起始 ${fmtTimeOnly(x.leaveStartAt)}`}</span>
       </div>
     `).join('')}
   </div>`;
