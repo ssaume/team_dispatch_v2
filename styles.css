@@ -533,3 +533,15 @@ dialog.loading-dialog .commit-loading-card{
 #commitOverlay.commit-overlay{
   all:unset;
 }
+
+/* v2.5.8 restart cancelled task */
+.task-restart-zone{
+  margin-top:16px;
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#f3faf6;
+}
+.task-restart-zone .primary{
+  margin-bottom:6px;
+}

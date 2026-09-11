@@ -42,7 +42,7 @@ function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHo
 
 const WRITE_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
-  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','updateTaskSchedule','stopTask',
+  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','updateTaskSchedule','stopTask','restartTask',
   'moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
   'adminCreateUser','adminUpdateUser','adminUpdateTaskDetails',
@@ -78,6 +78,7 @@ const DATA_LOADING_MESSAGES={
   updateTaskDetails:'正在更新任務內容…',
   updateSelfTaskRequestDate:'正在更新需求日期並整理排程…',
   stopTask:'正在中止任務…',
+  restartTask:'正在重新啟動任務並重建排程…',
   updateTaskPlannedHours:'正在依目前排程比例重新計算工時…',
   updateTaskSchedule:'正在更新日曆排程…',
   moveAllocation:'正在移動並重新計算排程…',
@@ -762,6 +763,17 @@ function openDetail(id){
       <button type="button" id="stopTaskBtn" class="danger">中止任務</button>
       <div class="mini">中止後不再計入 Loading，也不再顯示於工作日曆與公開儀表板。</div>
     </div>`:''}
+
+  ${t.status==='cancelled'?`
+    <div class="task-restart-zone">
+      <button type="button" id="restartTaskBtn" class="primary">重新啟動任務</button>
+      <div class="mini">
+        ${String(t.requestDate||'')<isoDate(new Date())
+          ? '原需求日已過期，重新啟動時需指定新的需求日與預估總工時。'
+          : '重新啟動後會沿用目前需求日與預估總工時，並從今天重新建立排程。'}
+      </div>
+    </div>`:''}
+
   ${allocationHtml}`;
 
   if(canEditSchedule){
@@ -841,6 +853,61 @@ function openDetail(id){
         $('#taskDialog').close();
         await loadAll();
       }catch(err){alert(err.message)}
+    });
+  }
+
+
+  const restartBtn=$('#restartTaskBtn');
+  if(restartBtn){
+    restartBtn.addEventListener('click',async()=>{
+      const today=isoDate(new Date());
+      const expired=String(t.requestDate||'')<today;
+
+      const payload={taskId:t.id};
+
+      if(expired){
+        const requestDate=prompt(
+          `原需求日 ${t.requestDate} 已過期。\n請輸入新的需求日（YYYY-MM-DD）：`,
+          today
+        );
+        if(requestDate===null)return;
+
+        if(!requestDate||requestDate<today){
+          alert('新的需求日不可早於今天');
+          return;
+        }
+
+        const plannedRaw=prompt(
+          '請輸入重新啟動後的預估總工時：',
+          String(t.plannedHours||8)
+        );
+        if(plannedRaw===null)return;
+
+        const plannedHours=Number(plannedRaw);
+        if(!Number.isFinite(plannedHours)||plannedHours<=0||plannedHours>999){
+          alert('請輸入有效的預估總工時');
+          return;
+        }
+
+        payload.requestDate=requestDate;
+        payload.plannedHours=plannedHours;
+
+        if(!confirm(`確定重新啟動「${t.workType}」？\n\n新需求日：${requestDate}\n預估總工時：${num(plannedHours)}h`)){
+          return;
+        }
+      }else{
+        if(!confirm(`確定重新啟動「${t.workType}」？\n\n需求日：${t.requestDate}\n預估總工時：${num(t.plannedHours)}h\n\n重新啟動後會從今天重新建立排程。`)){
+          return;
+        }
+      }
+
+      try{
+        await rpc('restartTask',payload);
+        await loadAll();
+        openDetail(t.id);
+      }catch(err){
+        alert(err.message);
+      }
     });
   }
 
