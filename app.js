@@ -45,7 +45,7 @@ const WRITE_ACTIONS=new Set([
   'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','updateTaskSchedule','stopTask','restartTask',
   'moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
-  'adminCreateUser','adminUpdateUser','adminUpdateTaskDetails',
+  'adminCreateUser','adminUpdateUser','adminUpdateTaskDetails','adminDeleteTask',
   'adminCreateHoliday','adminDeleteHoliday'
 ]);
 
@@ -90,6 +90,7 @@ const DATA_LOADING_MESSAGES={
   adminCreateUser:'正在建立帳號…',
   adminUpdateUser:'正在更新帳號…',
   adminUpdateTaskDetails:'正在更新人員工作內容…',
+  adminDeleteTask:'正在永久刪除任務與相關排程…',
   adminCreateHoliday:'正在新增國定假日並重新計算所有受影響排程…',
   adminDeleteHoliday:'正在刪除國定假日…'
 };
@@ -1844,6 +1845,7 @@ function openAdminUserTaskDetail(taskId){
         ${['accepted','completed'].includes(t.status)?`<button type="button" class="ghost" id="adminToggleUrgent">${t.urgent?'取消緊急':'標示緊急'}</button>`:''}
         ${['accepted','completed'].includes(t.status)?`<button type="button" class="secondary" id="adminToggleCompleted">${t.status==='completed'?'改回未完成':'完成'}</button>`:''}
         ${!['completed','rejected','cancelled'].includes(t.status)?'<button type="button" class="danger" id="adminStopTask">中止任務</button>':''}
+        <button type="button" class="danger admin-delete-task-btn" id="adminDeleteTask">永久刪除</button>
       </div>
     </div>
 
@@ -1939,6 +1941,26 @@ function openAdminUserTaskDetail(taskId){
       $('#adminUserTaskDialog').close();
       await refreshAdminUserWork(adminUserWorkContext.user.id,false);
     }catch(err){alert(err.message)}
+  });
+
+  $('#adminDeleteTask')?.addEventListener('click',async()=>{
+    const extra=t.isCollaborative
+      ? '\n\n這是共同作業，只會刪除目前這位人員的任務，不會刪除其他共同作業者。'
+      : t.isPeriodic
+        ? '\n\n這是週期工作，只會刪除目前這一期任務，不會刪除整個週期系列。'
+        : '';
+
+    if(!confirm(`確定要「永久刪除」任務「${t.workType}」？\n\n此操作會一併刪除該任務的日曆排程，且無法復原。${extra}`))return;
+
+    try{
+      await rpc('adminDeleteTask',{taskId:t.id});
+      $('#adminUserTaskDialog').close();
+      adminTasksLoaded=false;
+      await loadAll();
+      await refreshAdminUserWork(adminUserWorkContext.user.id,false);
+    }catch(err){
+      alert(err.message);
+    }
   });
 
   $$('[data-admin-move]',box).forEach(b=>{
@@ -2045,8 +2067,30 @@ function renderAdminTaskList(){
   const userId=$('#adminTaskUserFilter')?.value||'',status=$('#adminTaskStatusFilter')?.value||'';
   const rows=adminTasks.filter(t=>(!userId||(Array.isArray(t.participantIds)?t.participantIds.map(String).includes(String(userId)):String(t.assigneeId)===String(userId)))&&(!status||String(t.status)===String(status)));
   if(!rows.length){box.innerHTML='<div class="empty">沒有符合條件的工作。</div>';return}
-  box.innerHTML=`<div class="table-scroll"><table><thead><tr><th>工作類型</th><th>負責人</th><th>需求日</th><th>狀態</th><th>公開</th><th>需求內容</th><th>操作</th></tr></thead><tbody>${rows.map(t=>`<tr><td>${escapeHtml(t.workType)}</td><td>${escapeHtml(t.assigneeName)}</td><td>${fmtDate(t.requestDate)}</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td><span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span></td><td class="admin-task-content">${escapeHtml(t.content)}</td><td><button type="button" class="secondary" data-admin-edit-task="${t.id}">編輯</button></td></tr>`).join('')}</tbody></table></div>`;
+  box.innerHTML=`<div class="table-scroll"><table><thead><tr><th>工作類型</th><th>負責人</th><th>需求日</th><th>狀態</th><th>公開</th><th>需求內容</th><th>操作</th></tr></thead><tbody>${rows.map(t=>`<tr><td>${escapeHtml(t.workType)}</td><td>${escapeHtml(t.assigneeName)}</td><td>${fmtDate(t.requestDate)}</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td><span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span></td><td class="admin-task-content">${escapeHtml(t.content)}</td><td><div class="row-actions"><button type="button" class="secondary" data-admin-edit-task="${t.id}">編輯</button><button type="button" class="danger" data-admin-delete-task="${t.id}">刪除</button></div></td></tr>`).join('')}</tbody></table></div>`;
   $$('[data-admin-edit-task]',box).forEach(b=>b.addEventListener('click',()=>openAdminTaskEditor(b.dataset.adminEditTask)));
+  $$('[data-admin-delete-task]',box).forEach(b=>b.addEventListener('click',async()=>{
+    const taskId=b.dataset.adminDeleteTask;
+    const t=adminTasks.find(x=>String(x.id)===String(taskId));
+    if(!t)return;
+
+    const extra=t.isCollaborative
+      ? '\n\n這是共同作業，只會刪除目前這位人員的任務。'
+      : t.isPeriodic
+        ? '\n\n這是週期工作，只會刪除目前這一期任務。'
+        : '';
+
+    if(!confirm(`確定永久刪除「${t.workType}」？\n\n相關日曆排程也會一併刪除，且無法復原。${extra}`))return;
+
+    try{
+      await rpc('adminDeleteTask',{taskId});
+      adminTasksLoaded=false;
+      await loadAll();
+      await loadAdminTasks();
+    }catch(err){
+      alert(err.message);
+    }
+  }));
 }
 function openAdminTaskEditor(taskId){
   const t=adminTasks.find(x=>String(x.id)===String(taskId));if(!t)return;

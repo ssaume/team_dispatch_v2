@@ -551,3 +551,8 @@ dialog.loading-dialog .commit-loading-card{
 .periodic-fields label{
   margin-bottom:10px;
 }
+
+/* v2.7.0 admin permanent delete */
+.admin-delete-task-btn{
+  margin-left:auto;
+}
