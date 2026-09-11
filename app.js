@@ -299,20 +299,42 @@ function renderPublicDashboard(d){
   $('#dashboardWeekRange').textContent=`工作週 ${fmtDate(d.weekStart)} ～ ${fmtDate(d.weekEnd)}`;
   $('#dashboardHorizonRange').textContent=`${fmtDate(d.today)} ～ ${fmtDate(d.horizonEnd)} · 依需求日期排序`;
 
+  const leavePeople=d.todayLeavePeople||[];
   const week=d.currentWeekTasks||[];
   const cancelled=d.cancelledWeekTasks||[];
   const future=d.next15DaysTasks||[];
 
+  $('#dashboardTodayLeaveCount').textContent=`${leavePeople.length} 人`;
+  $('#dashboardTodayLeaveDate').textContent=fmtDate(d.today);
   $('#dashboardWeekCount').textContent=`${week.length} 件`;
   $('#dashboardCancelledCount').textContent=`${cancelled.length} 件`;
   $('#dashboardFutureCount').textContent=`${future.length} 件`;
   $('#dashboardCancelledRange').textContent=`${fmtDate(d.weekStart)} ～ ${fmtDate(d.calendarWeekEnd||d.weekEnd)}`;
 
+  $('#dashboardTodayLeave').innerHTML=dashboardTodayLeaveHtml(leavePeople);
   $('#dashboardWeekTasks').innerHTML=dashboardTaskTable(week,'week');
   $('#dashboardCancelledTasks').innerHTML=dashboardCancelledTaskTable(cancelled);
   $('#dashboardFutureTasks').innerHTML=dashboardTaskTable(future,'future');
 }
 
+
+
+function dashboardTodayLeaveHtml(rows){
+  if(!rows.length){
+    return '<div class="dashboard-empty">今天沒有休假人員。</div>';
+  }
+
+  return `<div class="today-leave-grid">
+    ${rows.map(x=>`
+      <div class="today-leave-card ${x.fullDay?'full-day':''}">
+        <strong>${escapeHtml(x.displayName)}</strong>
+        <span>${x.fullDay
+          ? '整天休假'
+          : `休假 ${num(x.leaveHours)}h · 可用 ${num(x.availableHours)}h`}</span>
+      </div>
+    `).join('')}
+  </div>`;
+}
 
 function dashboardCancelledTaskTable(tasks){
   if(!tasks.length)return '<div class="dashboard-empty">本週沒有中止任務。</div>';
@@ -745,6 +767,19 @@ function renderCalendar(){
       const allocations=workday
         ? myAllocations.filter(a=>String(a.workDate)===date).map(a=>({allocation:a,task:incoming.find(t=>String(t.id)===String(a.taskId))})).filter(x=>x.task&&['accepted','completed'].includes(x.task.status))
         : [];
+
+      const activeHours=allocations
+        .filter(x=>x.task.status==='accepted')
+        .reduce((sum,x)=>sum+Number(x.allocation.hours||0),0);
+
+      const dayLoadPct=availableHours>0
+        ? activeHours/availableHours*100
+        : 0;
+
+      const partialLeaveLoad=leaves.length&&availableHours>0
+        ? `<span class="load-chip ${dayLoadPct>100?'over':dayLoadPct>80?'high':''}" title="可用 ${num(availableHours)}h · Loading ${Math.round(dayLoadPct)}%">${Math.round(dayLoadPct)}%</span>`
+        : '';
+
       const dayClass=holidayList.length?'holiday-day':!weekday?'weekend':leaves.length?'leave-day':'';
       const notice=holidayList.length
         ? holidayList.map(x=>`<div class="event-strip holiday">國休｜${escapeHtml(x.holidayName)}</div>`).join('')
@@ -755,7 +790,10 @@ function renderCalendar(){
               `<div class="calendar-block-note">${availableHours>0?`可用 ${num(availableHours)}h`:'整天請假・不可派工'}</div>`
             : '';
       return `<div class="calendar-day ${dayClass} ${availableDrop?'calendar-drop-zone':''}" data-calendar-date="${date}">
-        <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
+        <div class="calendar-date-row">
+          <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
+          ${partialLeaveLoad}
+        </div>
         ${notice}
         ${allocations.map(({allocation:a,task:t})=>`<div class="cal-task ${calClass(t)} ${t.status==='accepted'?'draggable-task':''}" data-detail="${t.id}" data-allocation-id="${a.id}" data-task-id="${t.id}" draggable="${t.status==='accepted'?'true':'false'}" title="${t.status==='accepted'?'拖曳可重新安排日期；點擊可查看、移動與分拆':'已完成任務'}"><div class="cal-task-main">${t.urgent?'<b>!</b> ':''}${escapeHtml(t.workType)}${t.isCollaborative?'<span class="cal-collab">共同</span>':''}</div><div class="cal-hours">${num(a.hours)}h</div></div>`).join('')}
       </div>`;
@@ -1073,7 +1111,9 @@ function drawTeamGantt(data){
       if(cell.workday&&availableHours>0&&!hasHoliday){
         const pct=Math.max(0,Number(cell.loadPct)||0);
         const c=pct>100?'over':pct>80?'high':'';
-        const title=hasLeave?`可用 ${num(availableHours)}h · Loading ${Math.round(pct)}%`:`Loading ${Math.round(pct)}%`;
+        const title=hasLeave
+          ? `休假 ${num(cell.leaveHours||0)}h · 可用 ${num(availableHours)}h · Loading ${Math.round(pct)}%`
+          : `Loading ${Math.round(pct)}%`;
         chip=`<span class="load-chip ${c}" title="${title}">${Math.round(pct)}%</span>`;
       }
 
@@ -1212,6 +1252,18 @@ function renderAdminUserWorkCalendar(){
         }))
         .filter(x=>x.task&&['accepted','completed'].includes(x.task.status));
 
+      const activeHours=allocations
+        .filter(x=>x.task.status==='accepted')
+        .reduce((sum,x)=>sum+Number(x.allocation.hours||0),0);
+
+      const dayLoadPct=availableHours>0
+        ? activeHours/availableHours*100
+        : 0;
+
+      const partialLeaveLoad=leaves.length&&availableHours>0
+        ? `<span class="load-chip ${dayLoadPct>100?'over':dayLoadPct>80?'high':''}" title="可用 ${num(availableHours)}h · Loading ${Math.round(dayLoadPct)}%">${Math.round(dayLoadPct)}%</span>`
+        : '';
+
       const dayClass=holidayList.length?'holiday-day':!weekday?'weekend':leaves.length?'leave-day':'';
 
       const notice=holidayList.length
@@ -1224,7 +1276,10 @@ function renderAdminUserWorkCalendar(){
             : '';
 
       return `<div class="calendar-day ${dayClass} ${availableDrop?'admin-calendar-drop-zone':''}" data-admin-calendar-date="${date}">
-        <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
+        <div class="calendar-date-row">
+          <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
+          ${partialLeaveLoad}
+        </div>
         ${notice}
 
         ${allocations.map(({allocation:a,task:t})=>`

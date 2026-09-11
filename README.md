@@ -1,119 +1,84 @@
-# Team Dispatch v2.4.0
+# Team Dispatch v2.5.0
 
-## 1. 請別人協助：多重派工
+## 版本規則
+- 功能修改 / bug fix：第三碼
+- 新增功能：第二碼
+- 大改版：使用者明確標註後更新第一碼
 
-新增派工的「被派工者」可一次選擇多人。
+本版因新增「任務儀表板 → 當日休假人員」功能，因此版本由 v2.4.0 升為 v2.5.0。
 
-多重派工不是共同作業。
+## 1. 我的工作日曆：部分請假顯示 Loading
+
+如果當日有請假但不是整天：
+
+`可用工時 = 8h - 當日請假時數`
+
+`Loading = 當日進行中任務工時 ÷ 可用工時`
 
 例如：
-- 工作：UAT
-- 預估工時：5h
-- 被派工者：A、B、C
+- 請假 4h
+- 可用 4h
+- 當日進行中任務 2h
 
-系統建立三筆彼此獨立的 Task：
-- A / UAT / 5h / pending
-- B / UAT / 5h / pending
-- C / UAT / 5h / pending
+顯示：
+`Loading 50%`
 
-因此：
-- A 可以接受，B 可以拒絕
-- 每個人都各自負荷 5h
-- 每個人的 Loading、請假、同日接單、逾期規則都與單一派工完全相同
-- 不會因 A 接單而一起改變 B / C 的狀態
+請假提示與「可用 4h」仍然顯示。
 
-送出前會逐一檢查每一位人員：
-- Loading
-- 請假
-- 國定假日
-- 出差
-- 整天請假是否禁止派工
+整天請假（可用 0h）：
+- 不顯示 Loading %
+- 顯示「整天請假・不可派工」
 
-如果任一被派工者今天整天請假，整批派工不送出，避免只成功一半。
+已完成任務不計入當日 Loading。
 
-## 2. Admin：從團隊出勤直接管理 User 工作
+## 2. 團隊出勤：部分請假仍顯示 Loading
 
-Admin 登入後，在：
-`團隊出勤`
+團隊出勤延續同一公式：
 
-人員名稱改成可點擊。
+`Loading = 任務工時 ÷ (8h - 請假時數)`
 
-點擊後開啟該 User 的兩週工作日曆。
+只要剩餘可工作時數 > 0，就顯示 Loading。
 
-Admin 可以直接替該 User：
-- 跨週拖拉 Loading
-- 移動日期
-- 比例分拆
-- 修改工作類型
-- 修改需求內容
-- 修改預估總工時
-- 自派工作可修改需求日期
-- 修改公開 / 私人
-- 標示 / 取消緊急
-- 完成 / 改回未完成
-- 中止任務
+例如：
+- 請假 2h
+- 可用 6h
+- 任務 3h
+- Loading = 50%
 
-所有 Allocation 仍然維持在該 User 名下，不會移到 Admin 身上。
+只有整天休假時不顯示 Loading chip。
 
-共同作業時：
-Admin 點 A，只會拖拉 A 自己的 TaskAllocations；
-B / C 的排程不受影響。
+## 3. 任務儀表板：當日休假人員
 
-## Admin 權限修正
+免登入任務儀表板新增：
+`當日休假人員`
 
-v2.4.0 同時重新整理後端權限：
+顯示：
+- 人員姓名
+- 整天休假
+或
+- 休假 Xh / 可用 Xh
 
-以下既有 API 在 role=admin 時允許管理其他 User 的任務：
-- updateTaskDetails
-- updateTaskPlannedHours
-- updateSelfTaskRequestDate
-- setTaskVisibility
-- setUrgent
-- setCompleted
-- stopTask
-- moveAllocation
-- splitAllocation
+不公開：
+- 假別
+- 請假原因
+- 詳細起訖時間
 
-move / split 仍使用 Allocation 本身的 userId 驗證：
-- 請假
-- 國定假日
-- 可排程期間
-
-所以 Admin 不會套用自己的請假狀態到被管理者身上。
-
-## 新增讀取 API
-
-新增：
-`adminUserWork`
-
-只允許 Admin。
-
-一次讀取該 User：
-- Tasks
-- TaskAllocations
-- Leaves
-- Trips
-- Holidays
-
-並在開啟時套用：
-- Allocation 補齊
-- 逾期 Loading 收斂
-
-畫面會走既有「資料更新中」UI。
+例如：
+- 王小明｜整天休假
+- 陳小華｜休假 4h · 可用 4h
 
 ## 升級
 
-沒有新增 Google Sheet 欄位，因此：
+沒有新增 Google Sheet 欄位：
 - 不需要初始化 / 修復資料表
 
 Apps Script：
-1. 更新 Code.gs
-2. 儲存
-3. 部署既有 Web App 新版本 v2.4.0
+- 更新 Code.gs
+- 部署既有 Web App 新版本 v2.5.0
 
 GitHub：
 - 更新 index.html
 - 更新 app.js
 - 更新 styles.css
 
-config.js 保留。
+config.js 保留不動。

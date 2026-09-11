@@ -396,3 +396,37 @@ button.danger:hover{background:#fff0f2}
 .admin-work-actions{
   align-items:center;
 }
+
+/* v2.5.0 partial leave loading + today's leave dashboard */
+.calendar-date-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:6px;
+  margin-bottom:4px;
+}
+.calendar-date-row .calendar-date{
+  margin-bottom:0;
+}
+.today-leave-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:10px;
+}
+.today-leave-card{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+}
+.today-leave-card span{
+  color:var(--muted);
+  font-size:12px;
+}
+.today-leave-card.full-day{
+  background:#fff7f8;
+  border-color:#efc9cf;
+}
