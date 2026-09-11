@@ -490,3 +490,38 @@ dialog.commit-overlay[open]{
   color:#a96300;
   font-weight:700;
 }
+
+
+/* v2.5.5 - loading dialog layout fix */
+dialog#commitOverlay.commit-overlay{
+  position:fixed !important;
+  inset:0 !important;
+  width:max-content !important;
+  height:max-content !important;
+  max-width:calc(100vw - 32px) !important;
+  max-height:calc(100vh - 32px) !important;
+  min-width:0 !important;
+  min-height:0 !important;
+  margin:auto !important;
+  padding:0 !important;
+  border:0 !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  overflow:visible !important;
+  display:none !important;
+}
+
+dialog#commitOverlay.commit-overlay[open]{
+  display:block !important;
+}
+
+dialog#commitOverlay.commit-overlay::backdrop{
+  background:rgba(15,23,42,.28) !important;
+  backdrop-filter:blur(1px);
+}
+
+dialog#commitOverlay .commit-loading-card{
+  width:min(360px,calc(100vw - 40px));
+  margin:0;
+}
