@@ -81,10 +81,10 @@ function beginDataLoading(action){
 
   const isRead=READ_ACTIONS.has(action);
   const title=$('#commitLoadingTitle');
-  if(title)title.textContent=isRead?'資料讀取中':'資料處理中';
+  if(title)title.textContent=isRead?'資料更新中':'資料處理中';
 
   const text=$('#commitLoadingText');
-  if(text)text.textContent=DATA_LOADING_MESSAGES[action]||(isRead?'正在讀取資料，請稍候…':'正在更新 Google Drive，請稍候…');
+  if(text)text.textContent=DATA_LOADING_MESSAGES[action]||(isRead?'正在更新畫面資料，請稍候…':'正在更新 Google Drive，請稍候…');
 
   overlay.classList.remove('hidden');
 }
@@ -298,7 +298,7 @@ function dashboardCancelledTaskTable(tasks){
   if(!tasks.length)return '<div class="dashboard-empty">本週沒有中止任務。</div>';
   return `<div class="panel table-scroll dashboard-table-wrap"><table class="dashboard-table">
     <thead><tr><th>任務</th><th>負責人</th><th>原需求日</th><th>中止日</th></tr></thead>
-    <tbody>${tasks.map(t=>`<tr><td><strong>${escapeHtml(t.workType)}</strong></td><td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td><td>${fmtDate(t.requestDate)}</td><td><span class="badge cancelled">已中止</span> ${fmtDate(t.cancelledDate)}</td></tr>`).join('')}</tbody>
+    <tbody>${tasks.map(t=>`<tr><td><strong>${escapeHtml(t.workType)}</strong></td><td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td><td>${fmtDate(t.requestDate)}</td><td><span class="badge cancelled">已中止</span> ${t.cancelledDateStart&&t.cancelledDateEnd&&t.cancelledDateStart!==t.cancelledDateEnd?`${fmtDate(t.cancelledDateStart)} ～ ${fmtDate(t.cancelledDateEnd)}`:fmtDate(t.cancelledDate)}</td></tr>`).join('')}</tbody>
   </table></div>`;
 }
 
@@ -349,7 +349,7 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
 async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];adminUsers=d.adminUsers||[];taskTitles=d.taskTitles||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];holidays=d.holidays||[];adminTasksLoaded=false;adminTasks=[];teamCalendarCache.clear();renderMy();renderRequest();renderSchedule();refreshTaskTitleOptions()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
 
@@ -363,7 +363,23 @@ function refreshTaskTitleOptions(){
   if(req)req.innerHTML=taskTitleOptionsHtml();
 }
 
-function renderMy(){const el=$('#myView');if(!el)return;const pending=incoming.filter(x=>x.status==='pending').length,accepted=incoming.filter(x=>x.status==='accepted').length,completed=incoming.filter(x=>x.status==='completed').length,overdue=incoming.filter(x=>!['completed','rejected'].includes(x.status)&&daysToDue(x)<0).length;el.innerHTML=`<div class="page-header"><div><h1>我的工作</h1><div class="muted">查看待接受、已接單與已完成工作</div></div><div class="toolbar"><button class="primary" id="newSelfTask">＋新增自己的工作</button><div class="segmented"><button data-mode="list" class="${myMode==='list'?'active':''}">清單</button><button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button></div></div></div><div class="cards"><div class="stat"><div class="muted">待接受</div><div class="n">${pending}</div></div><div class="stat"><div class="muted">已接單</div><div class="n">${accepted}</div></div><div class="stat"><div class="muted">已完成</div><div class="n">${completed}</div></div><div class="stat"><div class="muted">已逾期</div><div class="n">${overdue}</div></div></div><div id="myBody"></div>`;$('#newSelfTask').onclick=()=>{$('#selfTaskForm').reset();$('#selfTaskForm [name="plannedHours"]').value='8';const today=isoDate(new Date());$('#selfTaskForm [name="periodStartDate"]').value=today;$('#selfTaskForm [name="periodStartDate"]').min=today;$('#selfTaskPeriodicFields').classList.add('hidden');refreshTaskTitleOptions();$('#selfTaskDialog').showModal()};$$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{myMode=b.dataset.mode;renderMy()}));myMode==='list'?renderMyList():renderCalendar()}
+
+function isMyTaskParticipant(t){
+  return Array.isArray(t.participantIds)
+    ? t.participantIds.map(String).includes(String(me.id))
+    : String(t.assigneeId)===String(me.id);
+}
+
+function renderMy(){const el=$('#myView');if(!el)return;const pending=incoming.filter(x=>x.status==='pending').length,accepted=incoming.filter(x=>x.status==='accepted').length,completed=incoming.filter(x=>x.status==='completed').length,overdue=incoming.filter(x=>!['completed','rejected'].includes(x.status)&&daysToDue(x)<0).length;el.innerHTML=`<div class="page-header"><div><h1>我的工作</h1><div class="muted">查看待接受、已接單與已完成工作</div></div><div class="toolbar"><button class="primary" id="newSelfTask">＋新增自己的工作</button><div class="segmented"><button data-mode="list" class="${myMode==='list'?'active':''}">清單</button><button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button></div></div></div><div class="cards"><div class="stat"><div class="muted">待接受</div><div class="n">${pending}</div></div><div class="stat"><div class="muted">已接單</div><div class="n">${accepted}</div></div><div class="stat"><div class="muted">已完成</div><div class="n">${completed}</div></div><div class="stat"><div class="muted">已逾期</div><div class="n">${overdue}</div></div></div><div id="myBody"></div>`;$('#newSelfTask').onclick=()=>{$('#selfTaskForm').reset();$('#selfTaskForm [name="plannedHours"]').value='8';const today=isoDate(new Date());$('#selfTaskForm [name="periodStartDate"]').value=today;$('#selfTaskForm [name="periodStartDate"]').min=today;$('#selfTaskPeriodicFields').classList.add('hidden');$('#selfTaskCollaborativeFields').classList.add('hidden');$('#selfTaskCollaborators').innerHTML=users.filter(u=>String(u.id)!==String(me.id)&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`).join('');refreshTaskTitleOptions();$('#selfTaskDialog').showModal()};$$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{myMode=b.dataset.mode;renderMy()}));myMode==='list'?renderMyList():renderCalendar()}
+
+function toggleSelfCollaborativeFields(){
+  const checked=$('#selfTaskCollaborative').checked;
+  $('#selfTaskCollaborativeFields').classList.toggle('hidden',!checked);
+  if(!checked){
+    [...$('#selfTaskCollaborators').options].forEach(o=>o.selected=false);
+  }
+}
+
 function toggleSelfPeriodicFields(){
   const checked=$('#selfTaskPeriodic').checked;
   const box=$('#selfTaskPeriodicFields');
@@ -377,12 +393,34 @@ async function handleSelfTask(e){
   e.preventDefault();
   const form=e.currentTarget;
   const payload=Object.fromEntries(new FormData(form));
+
   payload.isPeriodic=form.elements.isPeriodic.checked;
-  if(payload.isPeriodic&&!form.elements.periodStartDate.value){alert('週期工作請指定週期開始日');return}
+  if(payload.isPeriodic&&!form.elements.periodStartDate.value){
+    alert('週期工作請指定週期開始日');
+    return;
+  }
   if(!payload.isPeriodic)payload.periodStartDate='';
-  try{await rpc('createSelfTask',payload);$('#selfTaskDialog').close();await loadAll();alert('自己的工作已建立，已自動接單')}catch(err){alert(err.message)}
+
+  payload.isCollaborative=form.elements.isCollaborative.checked;
+  payload.collaboratorIds=payload.isCollaborative
+    ? [...form.elements.collaboratorIds.selectedOptions].map(o=>o.value)
+    : [];
+
+  if(payload.isCollaborative&&!payload.collaboratorIds.length){
+    alert('共同作業請至少選擇一位共同作業人員');
+    return;
+  }
+
+  try{
+    await rpc('createSelfTask',payload);
+    $('#selfTaskDialog').close();
+    await loadAll();
+    alert('自己的工作已建立，已自動接單');
+  }catch(err){
+    alert(err.message);
+  }
 }
-function renderMyList(){const body=$('#myBody');const rows=incoming.map(t=>`<tr class="${colorClass(t)}"><td>${t.urgent?'<span class="urgent">!</span> ':''}<button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button>${t.selfAssigned?'<div class="mini">自己建立</div>':''}</td><td>${escapeHtml(t.requesterName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span></td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${taskActions(t)}</td></tr>`).join('');body.innerHTML=`<div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>操作</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">目前沒有工作</td></tr>'}</tbody></table></div>`;bindTaskActions(body)}
+function renderMyList(){const body=$('#myBody');const rows=incoming.map(t=>`<tr class="${colorClass(t)}"><td>${t.urgent?'<span class="urgent">!</span> ':''}<button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button>${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}${t.selfAssigned?'<div class="mini">自己建立</div>':''}</td><td>${escapeHtml(t.requesterName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span></td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${taskActions(t)}</td></tr>`).join('');body.innerHTML=`<div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>操作</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">目前沒有工作</td></tr>'}</tbody></table></div>`;bindTaskActions(body)}
 function taskActions(t){if(t.status==='pending')return`<div class="row-actions"><button class="secondary" data-accept="${t.id}">接受</button><button class="danger" data-reject="${t.id}">拒絕</button></div>`;if(['accepted','completed'].includes(t.status))return`<div class="row-actions"><button class="ghost" data-urgent="${t.id}" data-value="${t.urgent?0:1}">${t.urgent?'取消緊急':'標示緊急'}</button><button class="secondary" data-complete="${t.id}" data-value="${t.status==='completed'?0:1}">${t.status==='completed'?'改回未完成':'完成'}</button></div>`;return t.rejectionReason?`<span class="muted">理由：${escapeHtml(t.rejectionReason)}</span>`:'-'}
 function bindTaskActions(root){$$('[data-detail]',root).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));$$('[data-accept]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('acceptTask',{taskId:b.dataset.accept});await loadAll()}catch(e){alert(e.message)}}));$$('[data-reject]',root).forEach(b=>b.addEventListener('click',()=>{$('#rejectForm [name="task_id"]').value=b.dataset.reject;$('#rejectForm [name="reason"]').value='';$('#rejectDialog').showModal()}));$$('[data-urgent]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('setUrgent',{taskId:b.dataset.urgent,urgent:b.dataset.value==='1'});await loadAll()}catch(e){alert(e.message)}}));$$('[data-complete]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('setCompleted',{taskId:b.dataset.complete,completed:b.dataset.value==='1'});await loadAll()}catch(e){alert(e.message)}}))}
 async function handleReject(e){e.preventDefault();const fd=new FormData(e.currentTarget);try{await rpc('rejectTask',{taskId:fd.get('task_id'),reason:fd.get('reason')});$('#rejectDialog').close();await loadAll()}catch(err){alert(err.message)}}
@@ -395,9 +433,9 @@ function openDetail(id){
     .sort((a,b)=>String(a.workDate).localeCompare(String(b.workDate))||Number(a.hours)-Number(b.hours));
 
   const scheduledHours=allocations.reduce((s,a)=>s+Number(a.hours||0),0);
-  const canEditSchedule=String(t.assigneeId)===String(me.id)&&t.status==='accepted';
+  const canEditSchedule=isMyTaskParticipant(t)&&t.status==='accepted';
 
-  const allocationHtml=String(t.assigneeId)===String(me.id)&&['accepted','completed'].includes(t.status)
+  const allocationHtml=isMyTaskParticipant(t)&&['accepted','completed'].includes(t.status)
     ? `<div class="allocation-detail">
         <h4>日曆排程</h4>
         <div class="allocation-total">已排 ${num(scheduledHours)}h / 預估 ${num(t.plannedHours)}h</div>
@@ -429,7 +467,7 @@ function openDetail(id){
       ${t.status!=='cancelled'?'<button type="button" id="saveTaskDetails" class="secondary task-detail-save">更新工作內容</button>':''}
     </div>
     <div class="k">派工者</div><div>${escapeHtml(t.requesterName)}</div>
-    <div class="k">被派工者</div><div>${escapeHtml(t.assigneeName)}</div>
+    <div class="k">負責人</div><div>${escapeHtml(t.assigneeName)} ${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}</div>
     <div class="k">任務類型</div><div>${t.isPeriodic?`週期工作（${fmtDate(t.periodStartDate)} ～ ${fmtDate(t.requestDate)}）`:'一般工作'}</div>
     <div class="k">需求日期</div>
     <div>
@@ -696,7 +734,7 @@ function renderCalendar(){
       return `<div class="calendar-day ${dayClass} ${availableDrop?'calendar-drop-zone':''}" data-calendar-date="${date}">
         <div class="calendar-date">${d.getMonth()+1}/${d.getDate()}</div>
         ${notice}
-        ${allocations.map(({allocation:a,task:t})=>`<div class="cal-task ${calClass(t)} ${t.status==='accepted'?'draggable-task':''}" data-detail="${t.id}" data-allocation-id="${a.id}" data-task-id="${t.id}" draggable="${t.status==='accepted'?'true':'false'}" title="${t.status==='accepted'?'拖曳可重新安排日期；點擊可查看、移動與分拆':'已完成任務'}"><div class="cal-task-main">${t.urgent?'<b>!</b> ':''}${escapeHtml(t.workType)}</div><div class="cal-hours">${num(a.hours)}h</div></div>`).join('')}
+        ${allocations.map(({allocation:a,task:t})=>`<div class="cal-task ${calClass(t)} ${t.status==='accepted'?'draggable-task':''}" data-detail="${t.id}" data-allocation-id="${a.id}" data-task-id="${t.id}" draggable="${t.status==='accepted'?'true':'false'}" title="${t.status==='accepted'?'拖曳可重新安排日期；點擊可查看、移動與分拆':'已完成任務'}"><div class="cal-task-main">${t.urgent?'<b>!</b> ':''}${escapeHtml(t.workType)}${t.isCollaborative?'<span class="cal-collab">共同</span>':''}</div><div class="cal-hours">${num(a.hours)}h</div></div>`).join('')}
       </div>`;
     }).join('');
 
@@ -860,7 +898,7 @@ async function loadAdminTasks(){
 function renderAdminTaskList(){
   const box=$('#adminTaskList');if(!box)return;
   const userId=$('#adminTaskUserFilter')?.value||'',status=$('#adminTaskStatusFilter')?.value||'';
-  const rows=adminTasks.filter(t=>(!userId||String(t.assigneeId)===String(userId))&&(!status||String(t.status)===String(status)));
+  const rows=adminTasks.filter(t=>(!userId||(Array.isArray(t.participantIds)?t.participantIds.map(String).includes(String(userId)):String(t.assigneeId)===String(userId)))&&(!status||String(t.status)===String(status)));
   if(!rows.length){box.innerHTML='<div class="empty">沒有符合條件的工作。</div>';return}
   box.innerHTML=`<div class="table-scroll"><table><thead><tr><th>工作類型</th><th>負責人</th><th>需求日</th><th>狀態</th><th>公開</th><th>需求內容</th><th>操作</th></tr></thead><tbody>${rows.map(t=>`<tr><td>${escapeHtml(t.workType)}</td><td>${escapeHtml(t.assigneeName)}</td><td>${fmtDate(t.requestDate)}</td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td><span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span></td><td class="admin-task-content">${escapeHtml(t.content)}</td><td><button type="button" class="secondary" data-admin-edit-task="${t.id}">編輯</button></td></tr>`).join('')}</tbody></table></div>`;
   $$('[data-admin-edit-task]',box).forEach(b=>b.addEventListener('click',()=>openAdminTaskEditor(b.dataset.adminEditTask)));

@@ -317,3 +317,29 @@ button.danger:hover{background:#fff0f2}
 .check-row{display:flex;flex-direction:row;align-items:center;gap:8px}
 .check-row input{width:auto}
 .periodic-fields{padding:12px;border:1px solid var(--line);border-radius:12px;background:#fafafa}
+
+/* v2.3 collaborative work */
+.collab-badge{
+  display:inline-flex;
+  align-items:center;
+  margin-left:7px;
+  padding:3px 7px;
+  border-radius:999px;
+  background:#e8eef8;
+  color:#506581;
+  font-size:11px;
+  font-weight:900;
+  vertical-align:middle;
+}
+.cal-collab{
+  display:inline-flex;
+  margin-left:5px;
+  padding:1px 5px;
+  border-radius:999px;
+  background:rgba(255,255,255,.7);
+  font-size:9px;
+  font-weight:900;
+}
+#selfTaskCollaborators{
+  min-height:120px;
+}
