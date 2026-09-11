@@ -31,13 +31,13 @@
         <form id="loginForm" autocomplete="off">
           <label>帳號<input name="username" autocomplete="off" required></label>
           <label>密碼<input type="password" name="password" autocomplete="off" required></label>
-          <button class="primary" id="loginBtn" type="button" disabled>登入</button>
+          <button class="primary" id="loginBtn" type="submit" disabled>登入</button>
           <button class="dashboard-entry" id="publicDashboardBtn" type="button" disabled>
             不登入，檢視任務儀表板
           </button>
           <div id="loginError" class="error"></div>
         </form>
-        <div class="app-version">v2.7.1</div>
+        <div class="app-version">v2.8.0</div>
       </section>
     </main>
   </template>
@@ -123,7 +123,7 @@
         <div class="brand">Team Dispatch</div>
         <nav>
           <button data-view="my" class="nav-btn active">我的工作</button>
-          <button data-view="request" class="nav-btn">請別人協助</button>
+          <button data-view="request" class="nav-btn">指派任務</button>
           <button data-view="schedule" class="nav-btn">請假／出差</button>
           <button data-view="team" class="nav-btn">團隊出勤</button>
           <button data-view="admin" id="adminNav" class="nav-btn hidden">系統管理</button>
@@ -133,7 +133,7 @@
             <div id="whoami"></div>
             <button id="logoutBtn" class="ghost">登出</button>
           </div>
-          <div class="app-version sidebar-version">v2.7.1</div>
+          <div class="app-version sidebar-version">v2.8.0</div>
         </div>
       </aside>
 
@@ -273,6 +273,25 @@
         <div class="dialog-actions">
           <button type="button" id="splitAllocationCancel" class="ghost">取消</button>
           <button type="submit" class="primary">確認分拆</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="stopTaskDialog">
+      <form id="stopTaskForm" class="dialog-card">
+        <div class="dialog-header">
+          <h3>中止任務</h3>
+          <button type="button" id="stopTaskClose" class="icon-btn">×</button>
+        </div>
+        <input type="hidden" name="taskId">
+        <input type="hidden" name="source">
+        <div id="stopTaskSummary" class="mini"></div>
+        <label>中止理由
+          <textarea name="reason" rows="4" required placeholder="請輸入中止原因"></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button type="button" id="stopTaskCancel" class="ghost">取消</button>
+          <button type="submit" class="danger">確認中止</button>
         </div>
       </form>
     </dialog>

@@ -556,3 +556,49 @@ dialog.loading-dialog .commit-loading-card{
 .admin-delete-task-btn{
   margin-left:auto;
 }
+
+/* v2.8.0 */
+.admin-task-details{
+  margin-top:18px;
+}
+.admin-task-summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  cursor:pointer;
+  list-style:none;
+}
+.admin-task-summary::-webkit-details-marker{
+  display:none;
+}
+.admin-task-summary h3{
+  margin:0;
+}
+.admin-expand-indicator{
+  font-size:12px;
+  font-weight:700;
+  color:var(--muted);
+}
+.admin-task-details[open] .admin-expand-indicator::before{
+  content:"收合";
+}
+.admin-task-details[open] .admin-expand-indicator{
+  font-size:0;
+}
+.admin-task-details[open] .admin-expand-indicator::before{
+  font-size:12px;
+}
+.admin-task-body{
+  padding-top:16px;
+}
+.future-due-tag{
+  display:inline-flex;
+  margin-top:6px;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:700;
+  background:rgba(245,158,11,.14);
+  color:#9a5a00;
+}

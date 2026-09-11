@@ -49,7 +49,7 @@ function setToken(v){
 
 const WRITE_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
-  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','updateTaskSchedule','stopTask','restartTask',
+  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','updateTaskSchedule','stopTask','restartTask','addTaskCollaborators',
   'moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
   'adminCreateUser','adminUpdateUser','adminUpdateTaskDetails','adminDeleteTask',
@@ -86,6 +86,7 @@ const DATA_LOADING_MESSAGES={
   updateSelfTaskRequestDate:'正在更新需求日期並整理排程…',
   stopTask:'正在中止任務…',
   restartTask:'正在重新啟動任務並建立排程…',
+  addTaskCollaborators:'正在新增共同作業者並建立個別工時排程…',
   updateTaskPlannedHours:'正在依目前排程比例重新計算工時…',
   updateTaskSchedule:'正在更新日曆排程…',
   moveAllocation:'正在移動並重新計算排程…',
@@ -291,10 +292,9 @@ function showLogin(){
 
   $('#publicDashboardBtn').addEventListener('click',showPublicDashboard);
 
-  // Prevent browser/password-manager implicit form submission.
-  form.addEventListener('submit',e=>e.preventDefault());
+  const performLogin=async()=>{
+    if(loginBtn.disabled)return;
 
-  loginBtn.addEventListener('click',async()=>{
     $('#loginError').textContent='';
 
     const username=form.elements.username.value.trim();
@@ -306,9 +306,6 @@ function showLogin(){
     }
 
     loginBtn.disabled=true;
-
-    // Clear only this tab's previous auth context before establishing
-    // a new login. Other tabs are unaffected because token is sessionStorage.
     setToken('');
     me=null;
 
@@ -322,7 +319,13 @@ function showLogin(){
       $('#loginError').textContent=err.message;
       loginBtn.disabled=false;
     }
+  };
+
+  form.addEventListener('submit',e=>{
+    e.preventDefault();
+    performLogin();
   });
+
 }
 
 
@@ -458,6 +461,7 @@ function dashboardTaskTable(tasks,mode){
                 ${dueWarning}
               </div>
               ${grouped?`<div class="mini">合併 ${t.taskCount} 筆同名任務</div>`:''}
+              ${mode==='future'?'<div class="future-due-tag">15 天內到期</div>':''}
             </td>
             <td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td>
             <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
@@ -469,7 +473,7 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#stopTaskClose').onclick=$('#stopTaskCancel').onclick=()=>$('#stopTaskDialog').close();$('#stopTaskForm').addEventListener('submit',handleStopTask);$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
 async function loadAll(){
   const expectedUserId=me?.id?String(me.id):'';
@@ -844,6 +848,45 @@ function bindTaskScheduleEditorEvents(t){
   });
 }
 
+
+function openStopTaskDialog(task,source='user'){
+  const form=$('#stopTaskForm');
+  form.reset();
+  form.elements.taskId.value=task.id;
+  form.elements.source.value=source;
+  $('#stopTaskSummary').textContent=`${task.workType} · ${task.assigneeName||''}`;
+  $('#stopTaskDialog').showModal();
+}
+
+async function handleStopTask(e){
+  e.preventDefault();
+
+  const form=e.currentTarget;
+  const taskId=form.elements.taskId.value;
+  const reason=form.elements.reason.value.trim();
+  const source=form.elements.source.value;
+
+  if(!reason){
+    alert('請輸入中止理由');
+    return;
+  }
+
+  try{
+    await rpc('stopTask',{taskId,reason});
+    $('#stopTaskDialog').close();
+
+    if(source==='admin-user'&&adminUserWorkContext){
+      $('#adminUserTaskDialog').close();
+      await refreshAdminUserWork(adminUserWorkContext.user.id,false);
+    }else{
+      $('#taskDialog')?.close();
+      await loadAll();
+    }
+  }catch(err){
+    alert(err.message);
+  }
+}
+
 function openDetail(id){
   const t=[...incoming,...outgoing].find(x=>String(x.id)===String(id));
   if(!t)return;
@@ -925,6 +968,18 @@ function openDetail(id){
     </div>
     <div class="k">派工者</div><div>${escapeHtml(t.requesterName)}</div>
     <div class="k">負責人</div><div>${escapeHtml(t.assigneeName)} ${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}</div>
+    ${t.status==='accepted'&&String(t.assigneeId)===String(me.id)?`
+      <div class="k">新增共同作業</div>
+      <div>
+        <select id="addCollaboratorSelect" multiple size="4">
+          ${users
+            .filter(u=>u.active&&String(u.id)!==String(me.id))
+            .map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`)
+            .join('')}
+        </select>
+        <button type="button" id="addCollaboratorBtn" class="secondary">指派共同作業</button>
+        <div class="mini">被指派者會建立獨立 Task，負荷完整預估總工時，並依自己的請假/工作日建立排程與 Loading。</div>
+      </div>`:''}
     <div class="k">任務類型</div><div>${t.isPeriodic?`週期工作（第 ${t.periodIndex}/${t.periodCount} 期 · ${t.periodCadenceWeeks===2?'雙週':'每週'} · ${fmtDate(t.periodStartDate)} ～ ${fmtDate(t.requestDate)}）`:'一般工作'}</div>
     <div class="k">需求日期</div>
     <div>
@@ -960,6 +1015,7 @@ function openDetail(id){
     <div class="k">接單時間</div><div>${fmtDateTime(t.acceptedAt)}</div>
     <div class="k">完成時間</div><div>${fmtDateTime(t.completedAt)}</div>
     <div class="k">拒絕理由</div><div>${escapeHtml(t.rejectionReason||'-')}</div>
+    <div class="k">中止理由</div><div>${escapeHtml(t.cancelledReason||'-')}</div>
   </div>
   ${!['completed','rejected','cancelled'].includes(t.status)?`
     <div class="task-stop-zone">
@@ -1013,6 +1069,27 @@ function openDetail(id){
     });
   }
 
+  const addCollaboratorBtn=$('#addCollaboratorBtn');
+  if(addCollaboratorBtn){
+    addCollaboratorBtn.addEventListener('click',async()=>{
+      const select=$('#addCollaboratorSelect');
+      const userIds=[...select.selectedOptions].map(o=>o.value);
+
+      if(!userIds.length){
+        alert('請至少選擇一位共同作業者');
+        return;
+      }
+
+      try{
+        await rpc('addTaskCollaborators',{taskId:t.id,userIds});
+        await loadAll();
+        openDetail(t.id);
+      }catch(err){
+        alert(err.message);
+      }
+    });
+  }
+
   const saveRequestDateBtn=$('#saveTaskRequestDate');
   if(saveRequestDateBtn){
     saveRequestDateBtn.addEventListener('click',async()=>{
@@ -1042,15 +1119,7 @@ function openDetail(id){
 
   const stopBtn=$('#stopTaskBtn');
   if(stopBtn){
-    stopBtn.addEventListener('click',async()=>{
-      const ok=confirm(`確定要中止「${t.workType}」？\n\n中止後：\n• 不再計入 Loading\n• 不再出現在工作日曆\n• 不再出現在免登入儀表板\n• 既有日排程資料保留作歷史紀錄`);
-      if(!ok)return;
-      try{
-        await rpc('stopTask',{taskId:t.id});
-        $('#taskDialog').close();
-        await loadAll();
-      }catch(err){alert(err.message)}
-    });
+    stopBtn.addEventListener('click',()=>openStopTaskDialog(t,'user'));
   }
 
   const restartBtn=$('#restartTaskBtn');
@@ -1340,8 +1409,8 @@ function bindCalendarInteractions(root){
         merge=confirm(`${fmtDate(targetDate)} 已有相同任務「${task.workType}」共 ${num(same.reduce((s,a)=>s+Number(a.hours||0),0))}h。
 
 按「確定」：把拖過來的 ${num(source.hours)}h 合併進同一區塊。
-按「取消」：${targetDate===source.workDate?'不做任何變更':'仍移到 '+fmtDate(targetDate)+'，但保留為兩個獨立區塊'}。`);
-        if(targetDate===source.workDate&&!merge)return;
+按「取消」：不做任何變更。`);
+        if(!merge)return;
       }else if(targetDate===source.workDate){
         return;
       }
@@ -1378,7 +1447,7 @@ function renderRequest(){
 
   el.innerHTML=`<div class="page-header">
     <div>
-      <h1>請別人協助</h1>
+      <h1>指派任務</h1>
       <div class="muted">可一次選擇多位人員；每位人員會建立獨立派工，判定、接單與工時計算都與單一派工相同。</div>
     </div>
   </div>
@@ -1883,6 +1952,156 @@ function bindAdminUserWorkCalendar(){
   });
 }
 
+
+function adminLeaveHoursOnDate(date){
+  if(!adminUserWorkContext)return 0;
+
+  const key=String(date).slice(0,10);
+  const dayStart=new Date(`${key}T00:00:00`);
+  const dayEnd=new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate()+1);
+
+  let hours=0;
+
+  (adminUserWorkContext.leaves||[]).forEach(x=>{
+    const s=new Date(x.startDateTime);
+    const e=new Date(x.endDateTime);
+    if(Number.isNaN(s.getTime())||Number.isNaN(e.getTime())||e<=s)return;
+
+    const from=s>dayStart?s:dayStart;
+    const to=e<dayEnd?e:dayEnd;
+    if(to>from)hours+=(to-from)/3600000;
+  });
+
+  return Math.min(8,Math.max(0,Math.round(hours*100)/100));
+}
+
+function adminHolidayOnDate(date){
+  return (adminUserWorkContext?.holidays||[])
+    .some(x=>String(x.holidayDate)===String(date));
+}
+
+function adminScheduleStartDate(t){
+  if(t.isPeriodic&&t.periodStartDate)return String(t.periodStartDate).slice(0,10);
+  const raw=t.acceptedAt||t.createdAt;
+  return raw?isoDate(new Date(raw)):'';
+}
+
+function adminScheduleValidDates(t,currentDates=[]){
+  const start=adminScheduleStartDate(t);
+  const due=String(t.requestDate||'').slice(0,10);
+  if(!start||!due||start>due)return[];
+
+  const existing=new Set(currentDates.map(String));
+  const out=[];
+  const d=new Date(`${start}T12:00:00`);
+  const e=new Date(`${due}T12:00:00`);
+
+  while(d<=e){
+    const key=isoDate(d);
+    const leaveHours=adminLeaveHoursOnDate(key);
+    const availableHours=Math.max(0,8-leaveHours);
+
+    if(isWorkdayDate(d)&&!adminHolidayOnDate(key)&&availableHours>0&&!existing.has(key)){
+      out.push({date:key,leaveHours,availableHours});
+    }
+
+    d.setDate(d.getDate()+1);
+  }
+
+  return out;
+}
+
+function refreshAdminScheduleSummary(t){
+  const box=$('#adminTaskScheduleEditor');
+  if(!box)return;
+
+  const inputs=$$('[data-admin-schedule-hours]',box);
+  const total=Math.round(inputs.reduce((s,x)=>s+(Number(x.value)||0),0)*100)/100;
+  const planned=Math.round(Number(t.plannedHours||0)*100)/100;
+  const diff=Math.round((planned-total)*100)/100;
+
+  $('#adminTaskScheduleSummary').innerHTML=diff===0
+    ? `<strong>合計 ${num(total)}h / 預估 ${num(planned)}h</strong>`
+    : `<strong>合計 ${num(total)}h / 預估 ${num(planned)}h</strong><span class="schedule-diff">尚差 ${num(diff)}h</span>`;
+
+  $('#adminSaveTaskSchedule').disabled=Math.abs(diff)>0.009||!inputs.length;
+}
+
+function rebuildAdminScheduleDateOptions(t){
+  const box=$('#adminTaskScheduleEditor');
+  const select=$('#adminTaskScheduleAddDate');
+  if(!box||!select)return;
+
+  const currentDates=$$('[data-admin-schedule-date]',box)
+    .map(r=>r.dataset.adminScheduleDate);
+
+  const candidates=adminScheduleValidDates(t,currentDates);
+
+  select.innerHTML='<option value="">選擇工作日</option>'+
+    candidates.map(x=>`<option value="${attr(x.date)}">${fmtDate(x.date)}${x.leaveHours>0?`（請假後可用 ${num(x.availableHours)}h）`:''}</option>`).join('');
+}
+
+function bindAdminScheduleEditor(t){
+  const box=$('#adminTaskScheduleEditor');
+  if(!box)return;
+
+  $$('[data-admin-schedule-hours]',box).forEach(input=>{
+    if(input.dataset.bound==='1')return;
+    input.dataset.bound='1';
+    input.addEventListener('input',()=>refreshAdminScheduleSummary(t));
+  });
+
+  $$('[data-admin-remove-schedule]',box).forEach(btn=>{
+    if(btn.dataset.bound==='1')return;
+    btn.dataset.bound='1';
+
+    btn.addEventListener('click',()=>{
+      btn.closest('[data-admin-schedule-date]')?.remove();
+      rebuildAdminScheduleDateOptions(t);
+      refreshAdminScheduleSummary(t);
+    });
+  });
+}
+
+function addAdminScheduleRow(t){
+  const select=$('#adminTaskScheduleAddDate');
+  const date=select?.value;
+  if(!date)return;
+
+  const list=$('#adminTaskScheduleRows');
+  if(!list)return;
+
+  const currentTotal=$$('[data-admin-schedule-hours]',$('#adminTaskScheduleEditor'))
+    .reduce((s,x)=>s+(Number(x.value)||0),0);
+
+  const remaining=Math.round((Number(t.plannedHours||0)-currentTotal)*100)/100;
+  const leaveHours=adminLeaveHoursOnDate(date);
+  const availableHours=Math.max(0,8-leaveHours);
+  const defaultHours=Math.max(0.01,remaining>0?Math.min(remaining,leaveHours>0?availableHours:remaining):0.01);
+
+  const row=document.createElement('div');
+  row.className='allocation-row schedule-edit-row';
+  row.dataset.adminScheduleDate=date;
+  row.innerHTML=`
+    <div>
+      <strong>${fmtDate(date)}</strong>
+      ${leaveHours>0?`<div class="mini">請假後可用 ${num(availableHours)}h</div>`:''}
+    </div>
+    <div class="schedule-hours-control">
+      <input type="number" min="0.01" max="999" step="0.01"
+        value="${num(defaultHours)}"
+        data-admin-schedule-hours="${attr(date)}">
+      <span>h</span>
+      <button type="button" class="ghost" data-admin-remove-schedule="${attr(date)}">移除</button>
+    </div>`;
+
+  list.appendChild(row);
+  bindAdminScheduleEditor(t);
+  rebuildAdminScheduleDateOptions(t);
+  refreshAdminScheduleSummary(t);
+}
+
 function openAdminUserTaskDetail(taskId){
   if(!adminUserWorkContext)return;
 
@@ -1944,23 +2163,44 @@ function openAdminUserTaskDetail(taskId){
     </div>
 
     ${['accepted','completed'].includes(t.status)?`
-      <div class="allocation-detail">
+      <div class="allocation-detail" id="adminTaskScheduleEditor">
         <h4>${escapeHtml(adminUserWorkContext.user.displayName)} 的日曆排程</h4>
-        <div class="allocation-total">已排 ${num(scheduled)}h / 預估 ${num(t.plannedHours)}h</div>
 
-        ${allocations.length
-          ? allocations.map(a=>`
-            <div class="allocation-row">
-              <div><strong>${fmtDate(a.workDate)}</strong> <span>${num(a.hours)}h</span></div>
-              ${t.status==='accepted'
-                ? `<div class="allocation-row-actions">
-                    <button type="button" class="secondary" data-admin-move="${a.id}">移動日期</button>
-                    <button type="button" class="secondary" data-admin-split="${a.id}">比例分拆</button>
-                  </div>`
-                : ''}
-            </div>
-          `).join('')
-          : '<div class="mini">目前沒有日排程。</div>'}
+        ${t.status==='accepted'
+          ? `<div id="adminTaskScheduleSummary" class="allocation-total">合計 ${num(scheduled)}h / 預估 ${num(t.plannedHours)}h</div>
+             <div id="adminTaskScheduleRows">
+               ${allocations.length
+                 ? allocations.map(a=>{
+                     const leaveHours=adminLeaveHoursOnDate(a.workDate);
+                     const availableHours=Math.max(0,8-leaveHours);
+                     return `<div class="allocation-row schedule-edit-row" data-admin-schedule-date="${attr(a.workDate)}">
+                       <div>
+                         <strong>${fmtDate(a.workDate)}</strong>
+                         ${leaveHours>0?`<div class="mini">${availableHours>0?`請假後可用 ${num(availableHours)}h`:'整天請假'}</div>`:''}
+                       </div>
+                       <div class="schedule-hours-control">
+                         <input type="number" min="0.01" max="999" step="0.01"
+                           value="${num(a.hours)}"
+                           data-admin-schedule-hours="${attr(a.workDate)}">
+                         <span>h</span>
+                         <button type="button" class="ghost" data-admin-remove-schedule="${attr(a.workDate)}">移除</button>
+                       </div>
+                     </div>`;
+                   }).join('')
+                 : '<div class="mini">目前沒有日排程。</div>'}
+             </div>
+
+             <div class="schedule-add-row">
+               <select id="adminTaskScheduleAddDate"><option value="">選擇工作日</option></select>
+               <button type="button" class="secondary" id="adminAddTaskScheduleDate">新增工作日</button>
+             </div>
+
+             <div class="schedule-save-row">
+               <button type="button" class="primary" id="adminSaveTaskSchedule">儲存日曆排程</button>
+               <div class="mini">規則與 User 相同：合計必須等於預估總工時；新增工作日不可超過需求日。</div>
+             </div>`
+          : `<div class="allocation-total">已排 ${num(scheduled)}h / 預估 ${num(t.plannedHours)}h</div>
+             ${allocations.map(a=>`<div class="allocation-row"><div><strong>${fmtDate(a.workDate)}</strong></div><div>${num(a.hours)}h</div></div>`).join('')}`}
       </div>
     `:''}
   `;
@@ -2027,14 +2267,8 @@ function openAdminUserTaskDetail(taskId){
     }catch(err){alert(err.message)}
   });
 
-  $('#adminStopTask')?.addEventListener('click',async()=>{
-    if(!confirm(`確定中止「${t.workType}」？`))return;
-
-    try{
-      await rpc('stopTask',{taskId:t.id});
-      $('#adminUserTaskDialog').close();
-      await refreshAdminUserWork(adminUserWorkContext.user.id,false);
-    }catch(err){alert(err.message)}
+  $('#adminStopTask')?.addEventListener('click',()=>{
+    openStopTaskDialog(t,'admin-user');
   });
 
   $('#adminDeleteTask')?.addEventListener('click',async()=>{
@@ -2057,13 +2291,46 @@ function openAdminUserTaskDetail(taskId){
     }
   });
 
-  $$('[data-admin-move]',box).forEach(b=>{
-    b.addEventListener('click',()=>adminPromptMoveAllocation(b.dataset.adminMove));
-  });
+  if(t.status==='accepted'){
+    bindAdminScheduleEditor(t);
+    rebuildAdminScheduleDateOptions(t);
+    refreshAdminScheduleSummary(t);
 
-  $$('[data-admin-split]',box).forEach(b=>{
-    b.addEventListener('click',()=>adminPromptSplitAllocation(b.dataset.adminSplit));
-  });
+    $('#adminAddTaskScheduleDate')?.addEventListener('click',()=>{
+      addAdminScheduleRow(t);
+    });
+
+    $('#adminSaveTaskSchedule')?.addEventListener('click',async()=>{
+      const entries=$$('[data-admin-schedule-date]',$('#adminTaskScheduleEditor')).map(row=>({
+        workDate:row.dataset.adminScheduleDate,
+        hours:Number(row.querySelector('[data-admin-schedule-hours]')?.value||0)
+      }));
+
+      if(!entries.length){
+        alert('至少需要保留一個工作日排程');
+        return;
+      }
+
+      const total=Math.round(entries.reduce((s,x)=>s+Number(x.hours||0),0)*100)/100;
+      const planned=Math.round(Number(t.plannedHours||0)*100)/100;
+
+      if(Math.abs(total-planned)>0.009){
+        alert(`每日工時合計必須等於預估總工時 ${num(planned)}h，目前合計 ${num(total)}h`);
+        return;
+      }
+
+      try{
+        await rpc('updateTaskSchedule',{
+          taskId:t.id,
+          targetUserId:adminUserWorkContext.user.id,
+          entries:JSON.stringify(entries)
+        });
+        await refresh();
+      }catch(err){
+        alert(err.message);
+      }
+    });
+  }
 
   if(!$('#adminUserTaskDialog').open){
     $('#adminUserTaskDialog').showModal();
@@ -2255,11 +2522,17 @@ async function renderAdmin(){
       </div>
     </div>
 
-    <section class="admin-task-section panel panel-pad">
-      <div class="admin-task-head"><div><h3>人員工作管理</h3><div class="mini">Admin 可檢視所有人員工作，包含私人任務，並可修改工作類型與需求內容。</div></div><button class="secondary" id="adminReloadTasks" type="button">重新整理工作</button></div>
-      <div class="admin-task-filters"><label>人員<select id="adminTaskUserFilter"><option value="">全部人員</option>${(data.users||[]).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`).join('')}</select></label><label>狀態<select id="adminTaskStatusFilter"><option value="">全部狀態</option><option value="pending">待接受</option><option value="accepted">已接單</option><option value="completed">已完成</option><option value="rejected">已拒絕</option><option value="cancelled">已中止</option></select></label></div>
-      <div id="adminTaskList"><div class="empty">正在準備人員工作資料…</div></div>
-    </section>
+    <details class="admin-task-section panel panel-pad admin-task-details">
+      <summary class="admin-task-summary">
+        <div><h3>人員工作管理</h3><div class="mini">點擊展開／收合。Admin 可檢視所有人員工作，包含私人任務。</div></div>
+        <span class="admin-expand-indicator">展開</span>
+      </summary>
+      <div class="admin-task-body">
+        <div class="admin-task-head"><div></div><button class="secondary" id="adminReloadTasks" type="button">重新整理工作</button></div>
+        <div class="admin-task-filters"><label>人員<select id="adminTaskUserFilter"><option value="">全部人員</option>${(data.users||[]).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`).join('')}</select></label><label>狀態<select id="adminTaskStatusFilter"><option value="">全部狀態</option><option value="pending">待接受</option><option value="accepted">已接單</option><option value="completed">已完成</option><option value="rejected">已拒絕</option><option value="cancelled">已中止</option></select></label></div>
+        <div id="adminTaskList"><div class="empty">正在準備人員工作資料…</div></div>
+      </div>
+    </details>
 
     <div class="admin-grid admin-holiday-section">
       <form id="holidayForm" class="form-card">

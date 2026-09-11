@@ -1,129 +1,119 @@
-# Team Dispatch v2.7.1
+# Team Dispatch v2.8.0
 
-本版為登入/session bug fix，因此依版本規則更新第三碼。
+本版包含新增功能與既有流程調整，因此更新第二碼。
 
-## 問題原因
+## 1. 我的工作日曆拖拉取消
 
-v2.7.0 以前登入 token 儲存在：
+當目標日期已有相同任務時，拖拉後會詢問是否合併。
 
-`localStorage.teamDispatchToken`
+v2.8.0：
+- 確定 → 合併並移動
+- 取消 → 完全不做任何變更
 
-localStorage 會被同一個 GitHub Pages origin 下的所有瀏覽器分頁共用。
+不再出現「取消但仍把資料寫到目標日期」的行為。
 
-因此：
+## 2. Admin 日曆排程改成與 User 相同
 
-分頁 A：
-- User A 登入
-- localStorage = Token A
+Admin 點擊團隊出勤中的 User 工作後，日曆排程改為：
+- 每個工作日直接輸入工時
+- 可移除工作日
+- 透過下拉選單新增工作日
+- 新增工作日不可超過需求日
+- 合計必須等於預估總工時
+- 部分請假顯示可用工時
+- 整天請假不可新增
 
-分頁 B：
-- User B 登入
-- localStorage 被改成 Token B
+後端仍使用同一個 `updateTaskSchedule`，Admin 只多傳 `targetUserId`。
 
-接著分頁 A 執行 loadAll / 更新工作時，
-前端會讀到 Token B，導致分頁 A 取得 User B 的資料。
+## 3. 中止任務理由
 
-這就是同一台電腦 / 同一瀏覽器登入兩個帳號時資料串帳的主要原因。
+Tasks 新增：
+`cancelledReason`
 
-## v2.7.1 修正
+User / Admin 中止任務時，不再直接 confirm，而是開啟輸入視窗：
+- 中止理由必填
+- 儲存到 Tasks.cancelledReason
 
-### 1. token 改為 sessionStorage
+重新啟動任務時會清除舊中止理由。
 
-改成：
+## 4. 既有任務新增共同作業
 
-`sessionStorage.teamDispatchToken`
+「我的工作 → 點擊進行中任務」可直接新增共同作業者。
 
-sessionStorage 是「每個分頁獨立」。
+規則：
+- 只有目前負責人可新增
+- 只限 accepted 任務
+- 可一次選多人
+- 新成員各自建立一筆獨立 Task
+- 與原 Task 共用 collaborationGroupId
+- 標題 / 工作內容仍同步
+- 狀態 / 需求日 / 工時 / Loading / 排程 / 中止 / 完成仍各自獨立
 
-因此可以：
+### Loading
+新共同作業者不是分攤原本工時。
 
-- 分頁 A → User A
-- 分頁 B → User B
+例如：
+原任務預估 8h
+新增 B / C
 
-兩個分頁的 token 不再互相覆蓋。
+結果：
+A = 8h
+B = 8h
+C = 8h
 
-### 2. RPC 固定使用發送當下 token
+每個人的 8h 都依該人的工作日、請假狀況分配到 TaskAllocations，
+並完整計入該人的 Loading。
 
-每個 rpc() 呼叫一開始就建立：
+其他任務已有多少 Loading 不會阻止新增共同作業；
+Loading 仍只作顯示。
 
-`tokenSnapshot`
+## 5. 選單名稱
 
-真正送出的 payload 使用這個 snapshot。
+「請別人協助」改為：
+「指派任務」
 
-即使同一分頁稍後切換帳號，
-既有 request 也不會突然改用新的 token。
+頁面標題也同步修改。
 
-### 3. 舊登入回應不得覆蓋新登入資料
+## 6. 登入頁 Enter
 
-每個 authenticated RPC 都記錄：
-- tokenSnapshot
-- 是否為 authenticated request
+登入表單現在支援：
+- 點「登入」
+- 在帳號 / 密碼輸入後直接按 Enter
 
-回應抵達時重新比較目前 tab token。
+兩者執行完全相同的登入流程。
 
-如果 request 是舊帳號發出的：
+## 7. Admin 人員工作管理
 
-`request token != current tab token`
+「系統管理 → 人員工作管理」改成可展開 / 收合。
 
-則直接忽略，不讓它覆蓋畫面資料。
+預設收合，點標題即可展開。
 
-### 4. loadAll 再增加 User ID 防護
+## 8. 任務儀表板未來 15 天
 
-loadAll 發送前記住目前：
+「未來 15 天任務」中的任務新增：
+`15 天內到期`
 
-`me.id`
+視覺標示，讓 User 可快速辨識近期到期工作。
 
-回應後再次確認：
+## Schema
 
-`response.user.id === expected user id`
+Tasks 新增：
+`cancelledReason`
 
-不符合即視為 stale session response，不更新：
-- me
-- incoming
-- outgoing
-- TaskAllocations
-- Leave
-- Trips
-- Admin data
+因此部署後需要執行一次：
+`Team Dispatch → 初始化 / 修復資料表`
 
-### 5. 移除舊 localStorage token
-
-升級後會主動：
-
-`localStorage.removeItem('teamDispatchToken')`
-
-避免舊版 shared token 殘留。
-
-## 預期使用方式
-
-同一個 Chrome：
-
-Tab A：
-`User A`
-
-Tab B：
-`User B`
-
-可以同時使用。
-
-A 更新工作後只會刷新 A。
-B 更新工作後只會刷新 B。
-
-注意：
-同一個「分頁」仍只允許一個登入帳號；
-要同時登入兩個帳號請使用兩個分頁。
-
-## 升級
-
-沒有 Google Sheet schema 變更。
-
-GitHub：
-- 必須更新 app.js
-- 更新 index.html 以顯示 v2.7.1
+## 部署
 
 Apps Script：
-- 功能邏輯無變更
-- 若要版本號同步，更新 Code.gs 並部署 v2.7.1
+1. 更新 Code.gs
+2. 儲存
+3. 回 Google Sheet 執行「初始化 / 修復資料表」
+4. 管理部署作業 → 編輯既有 Web App
+5. 部署 v2.8.0
 
-styles.css / config.js 不需修改。
-Google Sheet 不需初始化。
+GitHub：
+- 更新 index.html
+- 更新 app.js
+- 更新 styles.css
+- config.js 保留
