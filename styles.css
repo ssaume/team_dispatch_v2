@@ -430,3 +430,24 @@ button.danger:hover{background:#fff0f2}
   background:#fff7f8;
   border-color:#efc9cf;
 }
+
+/* v2.5.3 - loading dialog must stay above every modal */
+dialog.commit-overlay{
+  border:0;
+  padding:0;
+  margin:auto;
+  width:auto;
+  max-width:none;
+  background:transparent;
+  color:inherit;
+  overflow:visible;
+}
+dialog.commit-overlay::backdrop{
+  background:rgba(15,23,42,.34);
+  backdrop-filter:blur(1px);
+}
+dialog.commit-overlay[open]{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}

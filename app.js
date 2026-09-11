@@ -106,14 +106,28 @@ function beginDataLoading(action){
   const text=$('#commitLoadingText');
   if(text)text.textContent=DATA_LOADING_MESSAGES[action]||(isRead?'正在更新畫面資料，請稍候…':'正在更新 Google Drive，請稍候…');
 
-  overlay.classList.remove('hidden');
+  // Native <dialog> enters the browser Top Layer. This guarantees the
+  // loading UI stays above task/admin dialogs instead of being hidden
+  // behind an already-open modal.
+  try{
+    if(!overlay.open)overlay.showModal();
+  }catch{
+    overlay.setAttribute('open','');
+  }
 }
 
 function endDataLoading(){
   dataLoadingCount=Math.max(0,dataLoadingCount-1);
+
   if(dataLoadingCount===0){
     const overlay=$('#commitOverlay');
-    if(overlay)overlay.classList.add('hidden');
+    if(!overlay)return;
+
+    try{
+      if(overlay.open)overlay.close();
+    }catch{
+      overlay.removeAttribute('open');
+    }
   }
 }
 
