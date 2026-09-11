@@ -23,7 +23,7 @@ function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHo
 
 const WRITE_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
-  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateTaskPlannedHours','stopTask',
+  'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','stopTask',
   'moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
   'adminCreateUser','adminUpdateUser',
@@ -55,6 +55,7 @@ const DATA_LOADING_MESSAGES={
   setCompleted:'正在更新完成狀態…',
   setTaskVisibility:'正在更新任務公開屬性…',
   updateTaskDetails:'正在更新任務內容…',
+  updateSelfTaskRequestDate:'正在更新需求日期並整理排程…',
   stopTask:'正在中止任務…',
   updateTaskPlannedHours:'正在依目前排程比例重新計算工時…',
   moveAllocation:'正在移動並重新計算排程…',
@@ -288,7 +289,7 @@ function renderPublicDashboard(d){
 
 function dashboardTaskTable(tasks,mode){
   if(!tasks.length){
-    return `<div class="dashboard-empty">${mode==='week'?'本工作週沒有未結任務。':'未來 15 天沒有到期的未結任務。'}</div>`;
+    return `<div class="dashboard-empty">${mode==='week'?'本工作週沒有執行中任務。':'未來 15 天沒有到期的未結任務。'}</div>`;
   }
 
   return `<div class="panel table-scroll dashboard-table-wrap">
@@ -308,11 +309,18 @@ function dashboardTaskTable(tasks,mode){
             ? `${fmtDate(t.requestDate)} ～ ${fmtDate(t.requestDateEnd)}`
             : fmtDate(t.requestDate);
 
-          return `<tr class="${t.urgent?'dashboard-urgent-row':''}">
+          const dueWarning=t.dueState==='overdue'
+            ? '<span class="due-warning overdue">⚠ 已逾期</span>'
+            : t.dueState==='dueToday'
+              ? '<span class="due-warning today">⚠ 今日到期</span>'
+              : '';
+
+          return `<tr class="${[t.urgent?'dashboard-urgent-row':'',t.dueState?'dashboard-due-row':''].filter(Boolean).join(' ')}">
             <td>
               <div class="dashboard-task-name">
                 ${t.urgent?'<span class="urgent">!</span>':''}
                 <strong>${escapeHtml(t.workType)}</strong>
+                ${dueWarning}
               </div>
               ${grouped?`<div class="mini">合併 ${t.taskCount} 筆同名任務</div>`:(t.selfAssigned?'<div class="mini">自己建立</div>':'')}
             </td>
@@ -390,7 +398,16 @@ function openDetail(id){
     </div>
     <div class="k">派工者</div><div>${escapeHtml(t.requesterName)}</div>
     <div class="k">被派工者</div><div>${escapeHtml(t.assigneeName)}</div>
-    <div class="k">需求日期</div><div>${fmtDate(t.requestDate)}</div>
+    <div class="k">需求日期</div>
+    <div>
+      ${t.selfAssigned&&t.status==='accepted'
+        ? `<div class="request-date-edit">
+            <input id="taskRequestDateInput" type="date" value="${attr(t.requestDate)}">
+            <button type="button" id="saveTaskRequestDate" class="secondary">更新需求日期</button>
+          </div>
+          <div class="mini">僅自己派給自己的進行中任務可調整；若日期往前縮，超出的排程會自動收回新期間內。</div>`
+        : fmtDate(t.requestDate)}
+    </div>
     <div class="k">預估總工時</div>
     <div>
       <div class="planned-hours-edit">
@@ -429,6 +446,19 @@ function openDetail(id){
   $$('[data-split-allocation]',$('#taskDetail')).forEach(b=>{
     b.addEventListener('click',()=>openSplitAllocation(b.dataset.splitAllocation));
   });
+
+  const saveRequestDateBtn=$('#saveTaskRequestDate');
+  if(saveRequestDateBtn){
+    saveRequestDateBtn.addEventListener('click',async()=>{
+      const requestDate=$('#taskRequestDateInput').value;
+      if(!requestDate){alert('請選擇需求日期');return}
+      try{
+        await rpc('updateSelfTaskRequestDate',{taskId:t.id,requestDate});
+        await loadAll();
+        openDetail(t.id);
+      }catch(err){alert(err.message)}
+    });
+  }
 
   const saveDetailsBtn=$('#saveTaskDetails');
   if(saveDetailsBtn){

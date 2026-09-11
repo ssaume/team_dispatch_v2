@@ -275,3 +275,36 @@ dialog{border:0;border-radius:16px;padding:0;box-shadow:0 18px 80px rgba(0,0,0,.
 button.danger{border:1px solid #d95f6c;background:#fff;color:#b63e4c;border-radius:9px;padding:8px 12px;font-weight:900}
 button.danger:hover{background:#fff0f2}
 .badge.cancelled{background:#eceff1;color:#65747c}
+
+/* v2.1 dashboard due warnings / self due-date editing */
+.due-warning{
+  display:inline-flex;
+  align-items:center;
+  border-radius:999px;
+  padding:3px 7px;
+  margin-left:6px;
+  font-size:11px;
+  font-weight:900;
+  white-space:nowrap;
+}
+.due-warning.overdue{
+  background:#ffe4e7;
+  color:#a92c3b;
+}
+.due-warning.today{
+  background:#fff0cf;
+  color:#875c00;
+}
+.dashboard-due-row td:first-child{
+  box-shadow:inset 4px 0 0 #d26a72;
+}
+.request-date-edit{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.request-date-edit input{
+  width:auto;
+  min-width:160px;
+}
