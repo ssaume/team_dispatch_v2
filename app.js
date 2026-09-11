@@ -401,7 +401,7 @@ function dashboardTaskTable(tasks,mode){
                 <strong>${escapeHtml(t.workType)}</strong>
                 ${dueWarning}
               </div>
-              ${grouped?`<div class="mini">合併 ${t.taskCount} 筆同名任務</div>`:(t.selfAssigned?'<div class="mini">自己建立</div>':'')}
+              ${grouped?`<div class="mini">合併 ${t.taskCount} 筆同名任務</div>`:''}
             </td>
             <td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td>
             <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>

@@ -1,31 +1,32 @@
-# Team Dispatch v2.5.6
+# Team Dispatch v2.5.7
 
-本版為 bug fix，因此只更新第三碼。
+本版為顯示功能修改，因此更新第三碼。
 
-## 修正：Loading 仍出現橫向白色區塊
+## 任務儀表板顯示調整
 
-v2.5.5 仍可能受到舊 `.commit-overlay` CSS 影響。
+任務儀表板不再顯示：
+`自己建立`
 
-v2.5.6 不再讓 `<dialog id="commitOverlay">` 使用 `commit-overlay` class。
+也不再區分：
+- 自己建立
+- 別人派工
 
-新結構：
-- dialog.loading-dialog：只負責 Top Layer
-- loading-dialog-center：負責置中
-- commit-loading-card：只負責 loading 卡片本身
-- dialog::backdrop：負責全頁半透明遮罩
-
-因此舊 `.commit-overlay` 的 position / width / flex / background 規則不再能影響新的 dialog。
+儀表板仍顯示：
+- 任務名稱
+- 負責人
+- 狀態
+- 需求日
+- 緊急 / 到期警示
+- 同名同需求日任務的合併提示
 
 ## 升級
-GitHub 必須更新：
-- index.html
-- styles.css
 
-app.js 不需修改。
-config.js 不需修改。
+GitHub：
+- 更新 app.js
 
 Apps Script：
-- 僅版本號更新；若要版本一致可部署 v2.5.6
+- 功能邏輯無變更
+- 若需要版本號同步，可更新 Code.gs 並部署 v2.5.7
 
-Google Sheet：
-- 不需初始化。
+index.html / styles.css / config.js 不需修改。
+Google Sheet 不需初始化。
