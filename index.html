@@ -37,6 +37,7 @@
           </button>
           <div id="loginError" class="error"></div>
         </form>
+        <div class="app-version">v2.6.0</div>
       </section>
     </main>
   </template>
@@ -127,9 +128,12 @@
           <button data-view="team" class="nav-btn">團隊出勤</button>
           <button data-view="admin" id="adminNav" class="nav-btn hidden">系統管理</button>
         </nav>
-        <div class="user-box">
-          <div id="whoami"></div>
-          <button id="logoutBtn" class="ghost">登出</button>
+        <div class="sidebar-bottom">
+          <div class="user-box">
+            <div id="whoami"></div>
+            <button id="logoutBtn" class="ghost">登出</button>
+          </div>
+          <div class="app-version sidebar-version">v2.6.0</div>
         </div>
       </aside>
 
@@ -201,8 +205,25 @@
         </div>
         <label class="check-row"><input type="checkbox" name="isPeriodic" id="selfTaskPeriodic"><span>此任務為週期工作</span></label>
         <div id="selfTaskPeriodicFields" class="periodic-fields hidden">
-          <label>週期開始日<input type="date" name="periodStartDate"></label>
-          <div class="mini">總工時會平均分配在「週期開始日～需求日期」內的有效工作天。</div>
+          <label>週期間隔
+            <select name="periodCadenceWeeks">
+              <option value="1" selected>每週一次</option>
+              <option value="2">雙週一次</option>
+            </select>
+          </label>
+          <label>週期結束方式
+            <select name="periodEndMode" id="periodEndMode">
+              <option value="count" selected>指定週期次數</option>
+              <option value="date">指定週期結束日</option>
+            </select>
+          </label>
+          <div id="periodCountField">
+            <label>週期次數<input type="number" name="periodCount" min="1" max="52" step="1" value="4"></label>
+          </div>
+          <div id="periodEndDateField" class="hidden">
+            <label>週期結束日<input type="date" name="periodSeriesEndDate"></label>
+          </div>
+          <div class="mini">第一期會從需求日所在週的星期一開始，到需求日為止；後續依每週／雙週向後建立新的獨立週期，每一期都重新平均分配完整預估工時。</div>
         </div>
         <label>是否公開<select name="visibility" required><option value="public" selected>公開</option><option value="private">私人</option></select></label>
         <div class="dialog-actions"><button type="button" id="selfTaskCancel" class="ghost">取消</button><button type="submit" class="primary">建立工作</button></div>

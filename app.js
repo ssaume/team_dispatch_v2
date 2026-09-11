@@ -78,7 +78,7 @@ const DATA_LOADING_MESSAGES={
   updateTaskDetails:'正在更新任務內容…',
   updateSelfTaskRequestDate:'正在更新需求日期並整理排程…',
   stopTask:'正在中止任務…',
-  restartTask:'正在重新啟動任務並重建排程…',
+  restartTask:'正在重新啟動任務並建立排程…',
   updateTaskPlannedHours:'正在依目前排程比例重新計算工時…',
   updateTaskSchedule:'正在更新日曆排程…',
   moveAllocation:'正在移動並重新計算排程…',
@@ -414,7 +414,7 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
 async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];adminUsers=d.adminUsers||[];taskTitles=d.taskTitles||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];holidays=d.holidays||[];adminTasksLoaded=false;adminTasks=[];teamCalendarCache.clear();renderMy();renderRequest();renderSchedule();refreshTaskTitleOptions()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
 
@@ -435,7 +435,7 @@ function isMyTaskParticipant(t){
     : String(t.assigneeId)===String(me.id);
 }
 
-function renderMy(){const el=$('#myView');if(!el)return;const pending=incoming.filter(x=>x.status==='pending').length,accepted=incoming.filter(x=>x.status==='accepted').length,completed=incoming.filter(x=>x.status==='completed').length,overdue=incoming.filter(x=>!['completed','rejected'].includes(x.status)&&daysToDue(x)<0).length;el.innerHTML=`<div class="page-header"><div><h1>我的工作</h1><div class="muted">查看待接受、已接單與已完成工作</div></div><div class="toolbar"><button class="primary" id="newSelfTask">＋新增自己的工作</button><div class="segmented"><button data-mode="list" class="${myMode==='list'?'active':''}">清單</button><button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button></div></div></div><div class="cards"><div class="stat"><div class="muted">待接受</div><div class="n">${pending}</div></div><div class="stat"><div class="muted">已接單</div><div class="n">${accepted}</div></div><div class="stat"><div class="muted">已完成</div><div class="n">${completed}</div></div><div class="stat"><div class="muted">已逾期</div><div class="n">${overdue}</div></div></div><div id="myBody"></div>`;$('#newSelfTask').onclick=()=>{$('#selfTaskForm').reset();$('#selfTaskForm [name="plannedHours"]').value='8';const today=isoDate(new Date());$('#selfTaskForm [name="periodStartDate"]').value=today;$('#selfTaskForm [name="periodStartDate"]').min=today;$('#selfTaskPeriodicFields').classList.add('hidden');$('#selfTaskCollaborativeFields').classList.add('hidden');$('#selfTaskCollaborators').innerHTML=users.filter(u=>String(u.id)!==String(me.id)&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`).join('');refreshTaskTitleOptions();$('#selfTaskDialog').showModal()};$$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{myMode=b.dataset.mode;renderMy()}));myMode==='list'?renderMyList():renderCalendar()}
+function renderMy(){const el=$('#myView');if(!el)return;const pending=incoming.filter(x=>x.status==='pending').length,accepted=incoming.filter(x=>x.status==='accepted').length,completed=incoming.filter(x=>x.status==='completed').length,overdue=incoming.filter(x=>!['completed','rejected'].includes(x.status)&&daysToDue(x)<0).length;el.innerHTML=`<div class="page-header"><div><h1>我的工作</h1><div class="muted">查看待接受、已接單與已完成工作</div></div><div class="toolbar"><button class="primary" id="newSelfTask">＋新增自己的工作</button><div class="segmented"><button data-mode="list" class="${myMode==='list'?'active':''}">清單</button><button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button></div></div></div><div class="cards"><div class="stat"><div class="muted">待接受</div><div class="n">${pending}</div></div><div class="stat"><div class="muted">已接單</div><div class="n">${accepted}</div></div><div class="stat"><div class="muted">已完成</div><div class="n">${completed}</div></div><div class="stat"><div class="muted">已逾期</div><div class="n">${overdue}</div></div></div><div id="myBody"></div>`;$('#newSelfTask').onclick=()=>{$('#selfTaskForm').reset();$('#selfTaskForm [name="plannedHours"]').value='8';$('#selfTaskForm [name="periodCount"]').value='4';$('#selfTaskPeriodicFields').classList.add('hidden');$('#periodCountField').classList.remove('hidden');$('#periodEndDateField').classList.add('hidden');$('#selfTaskCollaborativeFields').classList.add('hidden');$('#selfTaskCollaborators').innerHTML=users.filter(u=>String(u.id)!==String(me.id)&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`).join('');refreshTaskTitleOptions();$('#selfTaskDialog').showModal()};$$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{myMode=b.dataset.mode;renderMy()}));myMode==='list'?renderMyList():renderCalendar()}
 
 function toggleSelfCollaborativeFields(){
   const checked=$('#selfTaskCollaborative').checked;
@@ -447,24 +447,26 @@ function toggleSelfCollaborativeFields(){
 
 function toggleSelfPeriodicFields(){
   const checked=$('#selfTaskPeriodic').checked;
-  const box=$('#selfTaskPeriodicFields');
-  box.classList.toggle('hidden',!checked);
-  const start=$('#selfTaskForm [name="periodStartDate"]');
-  const due=$('#selfTaskForm [name="requestDate"]');
-  start.required=checked;
-  start.max=due.value||'';
+  $('#selfTaskPeriodicFields').classList.toggle('hidden',!checked);
+  togglePeriodEndMode();
 }
+
+function togglePeriodEndMode(){
+  const mode=$('#periodEndMode')?.value||'count';
+  $('#periodCountField')?.classList.toggle('hidden',mode!=='count');
+  $('#periodEndDateField')?.classList.toggle('hidden',mode!=='date');
+
+  const form=$('#selfTaskForm');
+  if(!form)return;
+
+  form.elements.periodCount.required=$('#selfTaskPeriodic').checked&&mode==='count';
+  form.elements.periodSeriesEndDate.required=$('#selfTaskPeriodic').checked&&mode==='date';
+}
+
 async function handleSelfTask(e){
   e.preventDefault();
   const form=e.currentTarget;
   const payload=Object.fromEntries(new FormData(form));
-
-  payload.isPeriodic=form.elements.isPeriodic.checked;
-  if(payload.isPeriodic&&!form.elements.periodStartDate.value){
-    alert('週期工作請指定週期開始日');
-    return;
-  }
-  if(!payload.isPeriodic)payload.periodStartDate='';
 
   payload.isCollaborative=form.elements.isCollaborative.checked;
   payload.collaboratorIds=payload.isCollaborative
@@ -476,18 +478,120 @@ async function handleSelfTask(e){
     return;
   }
 
+  payload.isPeriodic=form.elements.isPeriodic.checked;
+
+  if(payload.isPeriodic){
+    payload.periodCadenceWeeks=Number(form.elements.periodCadenceWeeks.value);
+    payload.periodEndMode=form.elements.periodEndMode.value;
+
+    if(payload.periodEndMode==='count'){
+      payload.periodCount=Number(form.elements.periodCount.value);
+      payload.periodSeriesEndDate='';
+    }else{
+      payload.periodSeriesEndDate=form.elements.periodSeriesEndDate.value;
+      payload.periodCount='';
+    }
+  }else{
+    payload.periodCadenceWeeks='';
+    payload.periodEndMode='';
+    payload.periodCount='';
+    payload.periodSeriesEndDate='';
+  }
+
   try{
-    await rpc('createSelfTask',payload);
+    const result=await rpc('createSelfTask',payload);
     $('#selfTaskDialog').close();
     await loadAll();
-    alert('自己的工作已建立，已自動接單');
+
+    if(payload.isPeriodic){
+      alert(`週期工作已建立，共 ${result.periodCount} 個週期。`);
+    }else{
+      alert('自己的工作已建立，已自動接單');
+    }
   }catch(err){
     alert(err.message);
   }
 }
 function renderMyList(){const body=$('#myBody');const rows=incoming.map(t=>`<tr class="${colorClass(t)}"><td>${t.urgent?'<span class="urgent">!</span> ':''}<button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button>${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}${t.selfAssigned?'<div class="mini">自己建立</div>':''}</td><td>${escapeHtml(t.requesterName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span></td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${taskActions(t)}</td></tr>`).join('');body.innerHTML=`<div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>操作</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">目前沒有工作</td></tr>'}</tbody></table></div>`;bindTaskActions(body)}
-function taskActions(t){if(t.status==='pending')return`<div class="row-actions"><button class="secondary" data-accept="${t.id}">接受</button><button class="danger" data-reject="${t.id}">拒絕</button></div>`;if(['accepted','completed'].includes(t.status))return`<div class="row-actions"><button class="ghost" data-urgent="${t.id}" data-value="${t.urgent?0:1}">${t.urgent?'取消緊急':'標示緊急'}</button><button class="secondary" data-complete="${t.id}" data-value="${t.status==='completed'?0:1}">${t.status==='completed'?'改回未完成':'完成'}</button></div>`;return t.rejectionReason?`<span class="muted">理由：${escapeHtml(t.rejectionReason)}</span>`:'-'}
-function bindTaskActions(root){$$('[data-detail]',root).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));$$('[data-accept]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('acceptTask',{taskId:b.dataset.accept});await loadAll()}catch(e){alert(e.message)}}));$$('[data-reject]',root).forEach(b=>b.addEventListener('click',()=>{$('#rejectForm [name="task_id"]').value=b.dataset.reject;$('#rejectForm [name="reason"]').value='';$('#rejectDialog').showModal()}));$$('[data-urgent]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('setUrgent',{taskId:b.dataset.urgent,urgent:b.dataset.value==='1'});await loadAll()}catch(e){alert(e.message)}}));$$('[data-complete]',root).forEach(b=>b.addEventListener('click',async()=>{try{await rpc('setCompleted',{taskId:b.dataset.complete,completed:b.dataset.value==='1'});await loadAll()}catch(e){alert(e.message)}}))}
+function taskActions(t){if(t.status==='pending')return`<div class="row-actions"><button class="secondary" data-accept="${t.id}">接受</button><button class="danger" data-reject="${t.id}">拒絕</button></div>`;if(['accepted','completed'].includes(t.status))return`<div class="row-actions"><button class="ghost" data-urgent="${t.id}" data-value="${t.urgent?0:1}">${t.urgent?'取消緊急':'標示緊急'}</button><button class="secondary" data-complete="${t.id}" data-value="${t.status==='completed'?0:1}">${t.status==='completed'?'改回未完成':'完成'}</button></div>`;if(t.status==='cancelled')return`<button class="secondary" data-restart="${t.id}">重新啟動</button>`;return t.rejectionReason?`<span class="muted">理由：${escapeHtml(t.rejectionReason)}</span>`:'-'}
+function bindTaskActions(root){
+  $$('[data-detail]',root).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));
+
+  $$('[data-accept]',root).forEach(b=>b.addEventListener('click',async()=>{
+    try{
+      await rpc('acceptTask',{taskId:b.dataset.accept});
+      await loadAll();
+    }catch(e){alert(e.message)}
+  }));
+
+  $$('[data-reject]',root).forEach(b=>b.addEventListener('click',()=>{
+    $('#rejectForm [name="task_id"]').value=b.dataset.reject;
+    $('#rejectForm [name="reason"]').value='';
+    $('#rejectDialog').showModal();
+  }));
+
+  $$('[data-urgent]',root).forEach(b=>b.addEventListener('click',async()=>{
+    try{
+      await rpc('setUrgent',{taskId:b.dataset.urgent,urgent:b.dataset.value==='1'});
+      await loadAll();
+    }catch(e){alert(e.message)}
+  }));
+
+  $$('[data-complete]',root).forEach(b=>b.addEventListener('click',async()=>{
+    const t=incoming.find(x=>String(x.id)===String(b.dataset.complete));
+    if(!t)return;
+
+    const completing=b.dataset.value==='1';
+    const payload={taskId:t.id,completed:completing};
+
+    if(!completing&&String(t.requestDate)<isoDate(new Date())){
+      const requestDate=prompt('原需求日已過，請輸入新的需求日期（YYYY-MM-DD）',isoDate(new Date()));
+      if(!requestDate)return;
+      payload.requestDate=requestDate;
+    }
+
+    try{
+      await rpc('setCompleted',payload);
+      await loadAll();
+    }catch(e){alert(e.message)}
+  }));
+
+  $$('[data-restart]',root).forEach(b=>b.addEventListener('click',async()=>{
+    await restartTaskFromUi(b.dataset.restart);
+  }));
+}
+
+async function restartTaskFromUi(taskId){
+  const t=incoming.find(x=>String(x.id)===String(taskId));
+  if(!t)return;
+
+  const payload={taskId:t.id};
+
+  if(String(t.requestDate)<isoDate(new Date())){
+    const requestDate=prompt('原需求日已過，請輸入新的需求日期（YYYY-MM-DD）',isoDate(new Date()));
+    if(!requestDate)return;
+
+    const plannedHoursRaw=prompt('請確認重新啟動後的預估總工時',String(t.plannedHours));
+    if(plannedHoursRaw===null)return;
+
+    const plannedHours=Number(plannedHoursRaw);
+    if(!Number.isFinite(plannedHours)||plannedHours<=0){
+      alert('預估總工時必須大於 0');
+      return;
+    }
+
+    payload.requestDate=requestDate;
+    payload.plannedHours=plannedHours;
+  }
+
+  try{
+    await rpc('restartTask',payload);
+    await loadAll();
+  }catch(e){
+    alert(e.message);
+  }
+}
+
 async function handleReject(e){e.preventDefault();const fd=new FormData(e.currentTarget);try{await rpc('rejectTask',{taskId:fd.get('task_id'),reason:fd.get('reason')});$('#rejectDialog').close();await loadAll()}catch(err){alert(err.message)}}
 
 function taskScheduleStartDate(t){
@@ -496,13 +600,17 @@ function taskScheduleStartDate(t){
   return raw?isoDate(new Date(raw)):'';
 }
 
-function taskScheduleValidDates(t,allocations){
+function taskScheduleValidDates(t,currentRows=[]){
   const start=taskScheduleStartDate(t);
   const due=String(t.requestDate||'').slice(0,10);
   if(!start||!due||start>due)return[];
 
   const existingDates=new Set(
-    allocations.map(a=>String(a.workDate))
+    currentRows.map(x=>String(
+      typeof x==='string'
+        ? x
+        : (x.workDate||x.dataset?.scheduleDate||'')
+    )).filter(Boolean)
   );
 
   const out=[];
@@ -626,9 +734,9 @@ function bindTaskScheduleEditorEvents(t){
       const row=btn.closest('[data-schedule-date]');
       if(row)row.remove();
 
-      const allocations=myAllocations.filter(a=>String(a.taskId)===String(t.id));
-      const candidates=taskScheduleValidDates(t,allocations)
-        .filter(x=>!$$('[data-schedule-date]',box).some(r=>r.dataset.scheduleDate===x.date));
+      const currentDates=$$('[data-schedule-date]',box)
+        .map(r=>r.dataset.scheduleDate);
+      const candidates=taskScheduleValidDates(t,currentDates);
 
       const select=$('#taskScheduleAddDate');
       if(select){
@@ -722,10 +830,10 @@ function openDetail(id){
     </div>
     <div class="k">派工者</div><div>${escapeHtml(t.requesterName)}</div>
     <div class="k">負責人</div><div>${escapeHtml(t.assigneeName)} ${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}</div>
-    <div class="k">任務類型</div><div>${t.isPeriodic?`週期工作（${fmtDate(t.periodStartDate)} ～ ${fmtDate(t.requestDate)}）`:'一般工作'}</div>
+    <div class="k">任務類型</div><div>${t.isPeriodic?`週期工作（第 ${t.periodIndex}/${t.periodCount} 期 · ${t.periodCadenceWeeks===2?'雙週':'每週'} · ${fmtDate(t.periodStartDate)} ～ ${fmtDate(t.requestDate)}）`:'一般工作'}</div>
     <div class="k">需求日期</div>
     <div>
-      ${t.selfAssigned&&t.status==='accepted'
+      ${t.selfAssigned&&t.status==='accepted'&&String(t.assigneeId)===String(me.id)
         ? `<div class="request-date-edit">
             <input id="taskRequestDateInput" type="date" value="${attr(t.requestDate)}">
             <button type="button" id="saveTaskRequestDate" class="secondary">更新需求日期</button>
@@ -761,19 +869,13 @@ function openDetail(id){
   ${!['completed','rejected','cancelled'].includes(t.status)?`
     <div class="task-stop-zone">
       <button type="button" id="stopTaskBtn" class="danger">中止任務</button>
-      <div class="mini">中止後不再計入 Loading，也不再顯示於工作日曆與公開儀表板。</div>
+      <div class="mini">${t.isCollaborative?'只會中止你自己的共同作業任務，不影響其他共同作業者。':'中止後不再計入 Loading，也不再顯示於工作日曆與公開儀表板。'}</div>
     </div>`:''}
-
   ${t.status==='cancelled'?`
-    <div class="task-restart-zone">
-      <button type="button" id="restartTaskBtn" class="primary">重新啟動任務</button>
-      <div class="mini">
-        ${String(t.requestDate||'')<isoDate(new Date())
-          ? '原需求日已過期，重新啟動時需指定新的需求日與預估總工時。'
-          : '重新啟動後會沿用目前需求日與預估總工時，並從今天重新建立排程。'}
-      </div>
+    <div class="task-stop-zone">
+      <button type="button" id="restartTaskBtn" class="secondary">重新啟動任務</button>
+      <div class="mini">重新啟動後，會從重啟日到需求日重新平均分配完整預估工時。</div>
     </div>`:''}
-
   ${allocationHtml}`;
 
   if(canEditSchedule){
@@ -856,57 +958,14 @@ function openDetail(id){
     });
   }
 
-
   const restartBtn=$('#restartTaskBtn');
   if(restartBtn){
     restartBtn.addEventListener('click',async()=>{
-      const today=isoDate(new Date());
-      const expired=String(t.requestDate||'')<today;
-
-      const payload={taskId:t.id};
-
-      if(expired){
-        const requestDate=prompt(
-          `原需求日 ${t.requestDate} 已過期。\n請輸入新的需求日（YYYY-MM-DD）：`,
-          today
-        );
-        if(requestDate===null)return;
-
-        if(!requestDate||requestDate<today){
-          alert('新的需求日不可早於今天');
-          return;
-        }
-
-        const plannedRaw=prompt(
-          '請輸入重新啟動後的預估總工時：',
-          String(t.plannedHours||8)
-        );
-        if(plannedRaw===null)return;
-
-        const plannedHours=Number(plannedRaw);
-        if(!Number.isFinite(plannedHours)||plannedHours<=0||plannedHours>999){
-          alert('請輸入有效的預估總工時');
-          return;
-        }
-
-        payload.requestDate=requestDate;
-        payload.plannedHours=plannedHours;
-
-        if(!confirm(`確定重新啟動「${t.workType}」？\n\n新需求日：${requestDate}\n預估總工時：${num(plannedHours)}h`)){
-          return;
-        }
-      }else{
-        if(!confirm(`確定重新啟動「${t.workType}」？\n\n需求日：${t.requestDate}\n預估總工時：${num(t.plannedHours)}h\n\n重新啟動後會從今天重新建立排程。`)){
-          return;
-        }
-      }
-
-      try{
-        await rpc('restartTask',payload);
-        await loadAll();
-        openDetail(t.id);
-      }catch(err){
-        alert(err.message);
+      await restartTaskFromUi(t.id);
+      if($('#taskDialog').open){
+        const refreshed=incoming.find(x=>String(x.id)===String(t.id));
+        if(refreshed)openDetail(t.id);
+        else $('#taskDialog').close();
       }
     });
   }

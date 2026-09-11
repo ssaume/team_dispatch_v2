@@ -534,14 +534,20 @@ dialog.loading-dialog .commit-loading-card{
   all:unset;
 }
 
-/* v2.5.8 restart cancelled task */
-.task-restart-zone{
-  margin-top:16px;
-  padding:14px;
-  border:1px solid var(--line);
-  border-radius:12px;
-  background:#f3faf6;
+/* v2.6.0 */
+.app-version{
+  margin-top:14px;
+  text-align:center;
+  font-size:11px;
+  color:var(--muted);
+  letter-spacing:.04em;
 }
-.task-restart-zone .primary{
-  margin-bottom:6px;
+.sidebar-bottom{
+  margin-top:auto;
+}
+.sidebar-version{
+  margin-top:8px;
+}
+.periodic-fields label{
+  margin-bottom:10px;
 }
