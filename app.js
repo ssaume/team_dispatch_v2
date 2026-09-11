@@ -38,7 +38,14 @@ function holidayRecordsOnDate(d){
   return holidays.filter(x=>String(x.holidayDate)===key);
 }
 
-function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHours(0,0,0,0);return Math.ceil((due-now)/86400000)}function colorClass(t){if(t.status==='completed')return'task-gray';const d=daysToDue(t);if(d<0)return'task-pink';if(d<=2)return'task-orange';return'task-green'}function calClass(t){return colorClass(t).replace('task-','cal-')}function statusText(s){return({pending:'待接受',accepted:'已接單',rejected:'已拒絕',cancelled:'已中止',completed:'已完成',mixed:'多筆'})[s]||s}function token(){return localStorage.getItem('teamDispatchToken')||''}function setToken(v){if(v)localStorage.setItem('teamDispatchToken',v);else localStorage.removeItem('teamDispatchToken')}
+function daysToDue(t){const due=dateOnly(t.requestDate),now=new Date();now.setHours(0,0,0,0);return Math.ceil((due-now)/86400000)}function colorClass(t){if(t.status==='completed')return'task-gray';const d=daysToDue(t);if(d<0)return'task-pink';if(d<=2)return'task-orange';return'task-green'}function calClass(t){return colorClass(t).replace('task-','cal-')}function statusText(s){return({pending:'待接受',accepted:'已接單',rejected:'已拒絕',cancelled:'已中止',completed:'已完成',mixed:'多筆'})[s]||s}function token(){return sessionStorage.getItem('teamDispatchToken')||''}
+function setToken(v){
+  // v2.7.1: auth token is tab-scoped. localStorage is intentionally
+  // not used because it is shared by every tab on the same GitHub Pages origin.
+  localStorage.removeItem('teamDispatchToken');
+  if(v)sessionStorage.setItem('teamDispatchToken',v);
+  else sessionStorage.removeItem('teamDispatchToken');
+}
 
 const WRITE_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
@@ -134,12 +141,48 @@ function endDataLoading(){
   }
 }
 
+
+function staleSessionError(){
+  const err=new Error('登入帳號已切換，已忽略舊帳號的資料回應');
+  err.code='STALE_SESSION';
+  return err;
+}
+function isStaleSessionError(err){
+  return !!err&&err.code==='STALE_SESSION';
+}
+
 function validGoogleOrigin(origin){try{const u=new URL(origin);return u.protocol==='https:'&&(u.hostname==='script.google.com'||u.hostname==='script.googleusercontent.com'||u.hostname.endsWith('.googleusercontent.com'))}catch{return false}}
-window.addEventListener('message',ev=>{if(!validGoogleOrigin(ev.origin))return;const m=ev.data||{};if(m.channel!=='team-dispatch-rpc'||!m.id)return;const p=pendingRpc.get(m.id);if(!p)return;pendingRpc.delete(m.id);clearTimeout(p.timer);try{p.iframe.remove()}catch{}if(p.hasDataLoading)endDataLoading();m.ok?p.resolve(m.result):p.reject(new Error(m.error||'操作失敗'))});
+window.addEventListener('message',ev=>{
+  if(!validGoogleOrigin(ev.origin))return;
+
+  const m=ev.data||{};
+  if(m.channel!=='team-dispatch-rpc'||!m.id)return;
+
+  const p=pendingRpc.get(m.id);
+  if(!p)return;
+
+  pendingRpc.delete(m.id);
+  clearTimeout(p.timer);
+
+  try{p.iframe.remove()}catch{}
+  if(p.hasDataLoading)endDataLoading();
+
+  // For authenticated requests, never allow a response created under an
+  // older login token to update a newer login context in this tab.
+  if(p.authenticated&&p.tokenSnapshot!==token()){
+    p.reject(staleSessionError());
+    return;
+  }
+
+  m.ok?p.resolve(m.result):p.reject(new Error(m.error||'操作失敗'));
+});
 function rpc(action,payload={}){
   if(!cfg.APPS_SCRIPT_URL||cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){
     return Promise.reject(new Error('尚未設定 Apps Script URL'));
   }
+
+  const tokenSnapshot=token();
+  const authenticated=!!tokenSnapshot&&!['ping','login','publicDashboard'].includes(action);
 
   const hasDataLoading=WRITE_ACTIONS.has(action)||READ_ACTIONS.has(action);
   if(hasDataLoading)beginDataLoading(action);
@@ -168,7 +211,9 @@ function rpc(action,payload={}){
     const data=document.createElement('input');
     data.type='hidden';
     data.name='payload';
-    data.value=JSON.stringify({action,token:token(),...payload});
+    // Use the token captured at rpc() invocation. Never re-read auth state
+    // after the request has already been constructed.
+    data.value=JSON.stringify({action,token:tokenSnapshot,...payload});
     form.appendChild(data);
     document.body.appendChild(form);
 
@@ -179,7 +224,7 @@ function rpc(action,payload={}){
       reject(new Error('Google Apps Script 回應逾時'));
     },cfg.REQUEST_TIMEOUT_MS||20000);
 
-    pendingRpc.set(id,{resolve,reject,timer,iframe,hasDataLoading});
+    pendingRpc.set(id,{resolve,reject,timer,iframe,hasDataLoading,tokenSnapshot,authenticated});
 
     try{
       form.submit();
@@ -197,6 +242,9 @@ function rpc(action,payload={}){
 async function connectBackend(){
   // v1.4.1: opening / refreshing the site always returns to the login screen.
   // Do not silently restore a previous local session.
+  // Each page refresh starts logged out in this tab, preserving the existing
+  // explicit-login behavior. Also remove any legacy shared localStorage token.
+  localStorage.removeItem('teamDispatchToken');
   setToken('');
   showLogin();
 
@@ -258,6 +306,12 @@ function showLogin(){
     }
 
     loginBtn.disabled=true;
+
+    // Clear only this tab's previous auth context before establishing
+    // a new login. Other tabs are unaffected because token is sessionStorage.
+    setToken('');
+    me=null;
+
     try{
       const d=await rpc('login',{username,password});
       setToken(d.token);
@@ -415,9 +469,49 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch{}setToken('');showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
-async function loadAll(){try{const d=await rpc('loadAll');me=d.user;users=d.users||[];adminUsers=d.adminUsers||[];taskTitles=d.taskTitles||[];incoming=d.incoming||[];outgoing=d.outgoing||[];myAllocations=d.myAllocations||[];myLeaves=d.myLeaves||[];myTrips=d.myTrips||[];holidays=d.holidays||[];adminTasksLoaded=false;adminTasks=[];teamCalendarCache.clear();renderMy();renderRequest();renderSchedule();refreshTaskTitleOptions()}catch(e){if(/登入|session|權限/i.test(e.message)){setToken('');showLogin()}else alert(e.message)}}
+async function loadAll(){
+  const expectedUserId=me?.id?String(me.id):'';
+
+  try{
+    const d=await rpc('loadAll');
+
+    // Defense in depth: even if a stale response somehow gets through,
+    // never replace the current page with another user's dataset.
+    if(expectedUserId&&String(d.user?.id||'')!==expectedUserId){
+      throw staleSessionError();
+    }
+
+    me=d.user;
+    users=d.users||[];
+    adminUsers=d.adminUsers||[];
+    taskTitles=d.taskTitles||[];
+    incoming=d.incoming||[];
+    outgoing=d.outgoing||[];
+    myAllocations=d.myAllocations||[];
+    myLeaves=d.myLeaves||[];
+    myTrips=d.myTrips||[];
+    holidays=d.holidays||[];
+    adminTasksLoaded=false;
+    adminTasks=[];
+    teamCalendarCache.clear();
+
+    renderMy();
+    renderRequest();
+    renderSchedule();
+    refreshTaskTitleOptions();
+  }catch(e){
+    if(isStaleSessionError(e))return;
+
+    if(/登入|session|權限/i.test(e.message)){
+      setToken('');
+      showLogin();
+    }else{
+      alert(e.message);
+    }
+  }
+}
 
 function taskTitleOptionsHtml(){
   return taskTitles.map(x=>`<option value="${attr(x)}"></option>`).join('');

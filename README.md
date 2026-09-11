@@ -1,67 +1,129 @@
-# Team Dispatch v2.7.0
+# Team Dispatch v2.7.1
 
-本版新增 Admin「永久刪除任務」功能，因此依版本規則更新第二碼。
+本版為登入/session bug fix，因此依版本規則更新第三碼。
 
-## Admin 永久刪除任務
+## 問題原因
 
-Admin 可從兩個地方刪除任務：
+v2.7.0 以前登入 token 儲存在：
 
-1. 系統管理 → 人員工作管理 → 刪除
-2. 團隊出勤 → 點擊 User → 點擊任務 → 永久刪除
+`localStorage.teamDispatchToken`
 
-刪除後會永久移除：
-- 該筆 Tasks 資料
-- 該 Task 對應的所有 TaskAllocations
+localStorage 會被同一個 GitHub Pages origin 下的所有瀏覽器分頁共用。
 
 因此：
-- 不再出現在我的工作
-- 不再出現在工作日曆
-- 不再計算 Loading
-- 不再出現在任務儀表板
-- 不會保留「已中止」歷史
-- 無法復原
 
-## 共同作業
+分頁 A：
+- User A 登入
+- localStorage = Token A
 
-共同作業現在是每位人員一筆獨立 Task。
+分頁 B：
+- User B 登入
+- localStorage 被改成 Token B
 
-Admin 刪除 A 的任務：
-- 只刪 A
-- B / C 不會被刪除
+接著分頁 A 執行 loadAll / 更新工作時，
+前端會讀到 Token B，導致分頁 A 取得 User B 的資料。
 
-工作標題 / 工作內容的同步群組仍保留給其餘共同作業者。
+這就是同一台電腦 / 同一瀏覽器登入兩個帳號時資料串帳的主要原因。
 
-## 週期工作
+## v2.7.1 修正
 
-週期工作每一期都是獨立 Task。
+### 1. token 改為 sessionStorage
 
-Admin 刪除第 2 期：
-- 只刪第 2 期
-- 第 1 / 3 / 4 期仍保留
+改成：
 
-不會自動刪除整個 periodicSeries。
+`sessionStorage.teamDispatchToken`
 
-## 安全提示
+sessionStorage 是「每個分頁獨立」。
 
-刪除前會明確提示：
-- 這是永久刪除
-- TaskAllocations 會一起刪除
-- 無法復原
+因此可以：
 
-共同作業與週期工作會另外提示影響範圍。
+- 分頁 A → User A
+- 分頁 B → User B
+
+兩個分頁的 token 不再互相覆蓋。
+
+### 2. RPC 固定使用發送當下 token
+
+每個 rpc() 呼叫一開始就建立：
+
+`tokenSnapshot`
+
+真正送出的 payload 使用這個 snapshot。
+
+即使同一分頁稍後切換帳號，
+既有 request 也不會突然改用新的 token。
+
+### 3. 舊登入回應不得覆蓋新登入資料
+
+每個 authenticated RPC 都記錄：
+- tokenSnapshot
+- 是否為 authenticated request
+
+回應抵達時重新比較目前 tab token。
+
+如果 request 是舊帳號發出的：
+
+`request token != current tab token`
+
+則直接忽略，不讓它覆蓋畫面資料。
+
+### 4. loadAll 再增加 User ID 防護
+
+loadAll 發送前記住目前：
+
+`me.id`
+
+回應後再次確認：
+
+`response.user.id === expected user id`
+
+不符合即視為 stale session response，不更新：
+- me
+- incoming
+- outgoing
+- TaskAllocations
+- Leave
+- Trips
+- Admin data
+
+### 5. 移除舊 localStorage token
+
+升級後會主動：
+
+`localStorage.removeItem('teamDispatchToken')`
+
+避免舊版 shared token 殘留。
+
+## 預期使用方式
+
+同一個 Chrome：
+
+Tab A：
+`User A`
+
+Tab B：
+`User B`
+
+可以同時使用。
+
+A 更新工作後只會刷新 A。
+B 更新工作後只會刷新 B。
+
+注意：
+同一個「分頁」仍只允許一個登入帳號；
+要同時登入兩個帳號請使用兩個分頁。
 
 ## 升級
 
-沒有新增 Google Sheet 欄位。
-
-Apps Script：
-- 更新 Code.gs
-- 部署既有 Web App 新版本 v2.7.0
+沒有 Google Sheet schema 變更。
 
 GitHub：
-- 更新 index.html（版本文字）
-- 更新 app.js
-- 更新 styles.css
+- 必須更新 app.js
+- 更新 index.html 以顯示 v2.7.1
 
-config.js 保留。
-Google Sheet 不需要初始化 / 修復資料表。
+Apps Script：
+- 功能邏輯無變更
+- 若要版本號同步，更新 Code.gs 並部署 v2.7.1
+
+styles.css / config.js 不需修改。
+Google Sheet 不需初始化。
