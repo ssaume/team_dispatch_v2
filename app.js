@@ -1,6 +1,10 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;
+let assignmentPollTimer=null;
+let assignmentPollCursor='';
+let assignmentPollBusy=false;
+const ASSIGNMENT_POLL_INTERVAL_MS=15000;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
 function startOfWeek(d){const x=new Date(d),day=x.getDay(),diff=day===0?-6:1-day;x.setDate(x.getDate()+diff);x.setHours(0,0,0,0);return x}function isoDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}function dateOnly(s){return s?new Date(`${String(s).slice(0,10)}T00:00:00`):null}function fmtDate(s){if(!s)return'-';const d=dateOnly(s);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}function fmtDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?String(s):d.toLocaleString('zh-TW',{hour12:false})}function fmtLocalDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toLocaleString('zh-TW',{hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function isWorkdayDate(d){return ![0,6].includes(new Date(d).getDay())}
 function leaveRecordsOnDate(d){
@@ -284,6 +288,104 @@ function rpc(action,payload={}){
   return queued;
 }
 
+
+function stopAssignmentWatcher(){
+  if(assignmentPollTimer){
+    clearInterval(assignmentPollTimer);
+    assignmentPollTimer=null;
+  }
+  assignmentPollCursor='';
+  assignmentPollBusy=false;
+}
+
+async function startAssignmentWatcher(){
+  stopAssignmentWatcher();
+  if(!me||!token())return;
+
+  try{
+    const init=await rpc('pollAssignedTasks',{since:''});
+    assignmentPollCursor=String(init?.cursor||'');
+  }catch{
+    assignmentPollCursor='';
+  }
+
+  assignmentPollTimer=setInterval(
+    pollAssignedTaskNotifications,
+    ASSIGNMENT_POLL_INTERVAL_MS
+  );
+}
+
+function assignmentNotificationHtml(tasks){
+  return `<div class="assignment-notification-list">
+    ${tasks.map(t=>`
+      <div class="assignment-notification-item">
+        <div>
+          <strong>${escapeHtml(t.workType||'新任務')}</strong>
+          <div class="mini">派工者：${escapeHtml(t.requesterName||'(未知)')}</div>
+        </div>
+        <div class="assignment-notification-meta">
+          <span>需求日 ${fmtDate(t.requestDate)}</span>
+          <span>${num(t.plannedHours)}h</span>
+          ${t.status==='accepted'
+            ? '<span class="badge accepted">已接單</span>'
+            : '<span class="badge pending">待接受</span>'}
+        </div>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+function showAssignmentNotification(tasks){
+  const dialog=$('#assignmentNotificationDialog');
+  const body=$('#assignmentNotificationBody');
+  const title=$('#assignmentNotificationTitle');
+  if(!dialog||!body||!tasks.length)return;
+
+  if(title){
+    title.textContent=tasks.length===1
+      ? '收到 1 筆新任務'
+      : `收到 ${tasks.length} 筆新任務`;
+  }
+
+  body.innerHTML=assignmentNotificationHtml(tasks);
+
+  try{
+    if(!dialog.open)dialog.showModal();
+  }catch{
+    dialog.setAttribute('open','');
+  }
+}
+
+async function pollAssignedTaskNotifications(){
+  if(assignmentPollBusy||!me||!token()||!assignmentPollCursor)return;
+  if(document.hidden)return;
+
+  assignmentPollBusy=true;
+  try{
+    const d=await rpc('pollAssignedTasks',{since:assignmentPollCursor});
+    const nextCursor=String(d?.cursor||assignmentPollCursor);
+    const tasks=Array.isArray(d?.tasks)?d.tasks:[];
+    assignmentPollCursor=nextCursor;
+
+    if(!tasks.length)return;
+
+    const onMyWork=!!$('#myView')&&!$('#myView').classList.contains('hidden');
+    if(onMyWork){
+      // New assignment must appear immediately if the user is already
+      // viewing My Work.
+      await loadAll();
+    }
+
+    showAssignmentNotification(tasks);
+  }catch(err){
+    // Notification polling must never interrupt normal work.
+    console.warn('Assignment notification poll failed:',err);
+  }finally{
+    assignmentPollBusy=false;
+  }
+}
+
+
 async function connectBackend(){
   // v1.4.1: opening / refreshing the site always returns to the login screen.
   // Do not silently restore a previous local session.
@@ -320,6 +422,7 @@ async function connectBackend(){
 }
 
 function showLogin(){
+  stopAssignmentWatcher();
   me=null;
   app.innerHTML='';
   app.append($('#loginTpl').content.cloneNode(true));
@@ -359,6 +462,7 @@ function showLogin(){
       me=d.user;
       showMain();
       await loadAll();
+      await startAssignmentWatcher();
     }catch(err){
       $('#loginError').textContent=err.message;
       loginBtn.disabled=false;
@@ -641,7 +745,14 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#stopTaskClose').onclick=$('#stopTaskCancel').onclick=()=>$('#stopTaskDialog').close();$('#stopTaskForm').addEventListener('submit',handleStopTask);$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint)}
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }stopAssignmentWatcher();setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#stopTaskClose').onclick=$('#stopTaskCancel').onclick=()=>$('#stopTaskDialog').close();$('#stopTaskForm').addEventListener('submit',handleStopTask);$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint);
+$('#assignmentNotificationClose')?.addEventListener('click',()=>$('#assignmentNotificationDialog').close());
+$('#assignmentNotificationGoMy')?.addEventListener('click',()=>{
+  $('#assignmentNotificationDialog').close();
+  const btn=$('.nav-btn[data-view="my"]');
+  switchView('my',btn);
+  loadAll();
+})}
 function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
 async function loadAll(){
   const expectedUserId=me?.id?String(me.id):'';

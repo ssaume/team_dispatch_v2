@@ -1157,3 +1157,63 @@ dialog.loading-dialog .commit-loading-card{
 .schedule-history-row{background:#f5f6f7}
 .schedule-history-row input:disabled{background:#eceff1;color:#78858c}
 @media(max-width:640px){.dashboard-tabs{width:100%}.dashboard-tab{flex:1}.dashboard-plan-grid{grid-template-columns:1fr}}
+
+/* v2.11.0 new assignment notification */
+.assignment-notification-dialog{
+  width:min(560px,calc(100vw - 24px));
+  border:0;
+  padding:0;
+  background:transparent;
+}
+.assignment-notification-card{
+  width:100%;
+  max-height:min(78vh,680px);
+  overflow:auto;
+}
+.assignment-notification-list{
+  display:grid;
+  gap:10px;
+  margin-top:6px;
+}
+.assignment-notification-item{
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  padding:13px 14px;
+  border:1px solid var(--line);
+  border-left:5px solid #4f9bc1;
+  border-radius:12px;
+  background:#fbfdfe;
+}
+.assignment-notification-meta{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:5px;
+  font-size:12px;
+  color:var(--muted);
+  white-space:nowrap;
+}
+@media(max-width:600px){
+  .assignment-notification-dialog{
+    width:100vw;
+    max-width:none;
+    height:100dvh;
+    max-height:none;
+    margin:0;
+  }
+  .assignment-notification-card{
+    width:100vw;
+    min-height:100dvh;
+    max-height:100dvh;
+    border-radius:0;
+  }
+  .assignment-notification-item{
+    flex-direction:column;
+  }
+  .assignment-notification-meta{
+    align-items:flex-start;
+    flex-direction:row;
+    flex-wrap:wrap;
+  }
+}

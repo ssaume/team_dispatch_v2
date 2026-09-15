@@ -37,7 +37,7 @@
           </button>
           <div id="loginError" class="error"></div>
         </form>
-        <div class="app-version">v2.10.0</div>
+        <div class="app-version">v2.11.0</div>
       </section>
     </main>
   </template>
@@ -207,7 +207,7 @@
             <div id="whoami"></div>
             <button id="logoutBtn" class="ghost">登出</button>
           </div>
-          <div class="app-version sidebar-version">v2.10.0</div>
+          <div class="app-version sidebar-version">v2.11.0</div>
         </div>
       </aside>
 
@@ -304,6 +304,24 @@
       </form>
     </dialog>
 
+
+
+
+    <dialog id="assignmentNotificationDialog" class="assignment-notification-dialog">
+      <div class="dialog-card assignment-notification-card">
+        <div class="dialog-header">
+          <div>
+            <div class="task-detail-eyebrow">NEW ASSIGNMENT</div>
+            <h3 id="assignmentNotificationTitle">收到新任務</h3>
+          </div>
+          <button type="button" id="assignmentNotificationClose" class="icon-btn">×</button>
+        </div>
+        <div id="assignmentNotificationBody"></div>
+        <div class="dialog-actions">
+          <button type="button" id="assignmentNotificationGoMy" class="primary">前往我的工作</button>
+        </div>
+      </div>
+    </dialog>
 
 
     <dialog id="moveAllocationDialog">

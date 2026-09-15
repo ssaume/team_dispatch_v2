@@ -1,49 +1,41 @@
-# Team Dispatch v2.10.0
+# Team Dispatch v2.11.0
 
-## 衝突檢查
-Task 修改送出時會攜帶前端看到的 `updatedAt`。
-後端寫入前比對目前 DB 的 `updatedAt`；不一致時回傳 CONFLICT，要求重新整理。
-排程修改、移動、分拆後也會更新 Task.updatedAt，因此另一台電腦的舊畫面會被擋下。
+## 新任務登入中通知
 
-同一瀏覽器分頁的 write RPC 會序列化送出，避免使用者連續操作造成 Apps Script 併發排隊。
+當 A 透過「指派任務」建立 B 的新任務，而 B 當下已登入 Team Dispatch：
 
-## 共同作業同步
-有 collaborationGroupId 時：
-- 需求日、預估總工時由共同作業建立者（或 admin）修改
-- 會同步到所有仍有效的共同作業 Task
-- 每個人保留自己的 Allocation 比例
-- 個別日曆比例調整只影響自己的 Task
+- B 每 15 秒執行一次輕量 `pollAssignedTasks`
+- 只查 B 自己在上次 server cursor 之後新建立的 Task
+- 不重載整個 DB
+- 偵測到新任務後以 Dialog 顯示
+- 內容包含任務、派工者、需求日、預估工時、狀態
+- 同一輪偵測到多筆任務時合併成一個通知視窗
 
-## 已發生工時凍結
-以「今天」為切點：
-- workDate < today 視為已發生
-- 修改需求日 / 總工時時不重寫歷史 Allocation
-- 新總工時先扣除各人的已發生工時
-- 剩餘工時依該人目前未來 Allocation 比例重新配比
-- 若新總工時小於某人的已發生工時，拒絕修改
-- 手動日曆排程也不能修改或移除歷史工時
-- move / split 不能操作歷史 Allocation
+第一次 poll 只建立 server cursor，因此不會把登入前的歷史 pending 任務全部彈出。
 
-## 公開儀表板
-新增「近期出差人員」：
-- 位置在休假計畫上方
-- 顯示今天起未來 30 天內有重疊的出差
-- 排除 admin
+## 我的工作強制刷新
 
-「當日休假人員」改為「休假計畫」：
-- 當日
-- 未來一個月
-兩個頁簽。
+如果 B 收到新任務時剛好正在「我的工作」：
+1. 先執行 `loadAll()`
+2. 強制更新工作資料
+3. 再顯示通知視窗
 
-## Queue / timeout UX
-- 同分頁 write request 排隊送出
-- 8 秒後 loading 文字改為「正在排隊處理」
-- write timeout 最少 45 秒
-- read timeout 最少 30 秒
-- 避免 20 秒直接 timeout 後使用者重複按送出
+因此畫面上的任務清單會先更新，再通知使用者。
+
+## 效能與 Queue
+
+`pollAssignedTasks` 是 lightweight read：
+- 不顯示全頁 loading
+- 不加入 write queue
+- 瀏覽器分頁在背景時不 polling
+- 暫時性 Apps Script / 網路錯誤只記錄 console，不打斷使用者
+- 下一輪會自動繼續
+
+Polling interval：15 秒。
 
 ## 部署
-Apps Script：更新 Code.gs 並部署 v2.10.0。
-GitHub：更新 index.html / app.js / styles.css。
-config.js 不改。
+
+Apps Script：更新 Code.gs 並部署 v2.11.0。
+GitHub：更新 index.html、app.js、styles.css。
+config.js 不修改。
 Google Sheet 無 schema 變更，不需初始化。
