@@ -1217,3 +1217,26 @@ dialog.loading-dialog .commit-loading-card{
     flex-wrap:wrap;
   }
 }
+
+/* v2.11.3 cross-user synchronization notice */
+.dashboard-update-notice{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:12px 0;
+  padding:11px 14px;
+  border:1px solid #f0cf7b;
+  border-radius:12px;
+  background:#fff8df;
+  color:#77591b;
+}
+.dashboard-update-notice span{
+  font-size:13px;
+}
+@media(max-width:640px){
+  .dashboard-update-notice{
+    align-items:flex-start;
+    flex-direction:column;
+    gap:4px;
+  }
+}

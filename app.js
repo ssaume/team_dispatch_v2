@@ -1,11 +1,17 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.2';
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.3';
 let assignmentPollTimer=null;
 let assignmentPollCursor='';
 let assignmentPollBusy=false;
 let relatedTaskDataStale=false;
-const ASSIGNMENT_POLL_INTERVAL_MS=15000;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
+let teamDataStale=false;
+let teamSyncRevision='';
+let dashboardSyncTimer=null;
+let dashboardPublicRevision='';
+let dashboardSyncBusy=false;
+const ASSIGNMENT_POLL_INTERVAL_MS=15000;
+const DASHBOARD_SYNC_INTERVAL_MS=15000;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
 function startOfWeek(d){const x=new Date(d),day=x.getDay(),diff=day===0?-6:1-day;x.setDate(x.getDate()+diff);x.setHours(0,0,0,0);return x}function isoDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}function dateOnly(s){return s?new Date(`${String(s).slice(0,10)}T00:00:00`):null}function fmtDate(s){if(!s)return'-';const d=dateOnly(s);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}function fmtDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?String(s):d.toLocaleString('zh-TW',{hour12:false})}function fmtLocalDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toLocaleString('zh-TW',{hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function isWorkdayDate(d){return ![0,6].includes(new Date(d).getDay())}
 function leaveRecordsOnDate(d){
@@ -53,7 +59,7 @@ function setToken(v){
 }
 
 function syncVersionDisplay(){
-  const version=String(backendVersion||'2.11.2').replace(/^v/,'');
+  const version=String(backendVersion||'2.11.3').replace(/^v/,'');
   $$('.app-version').forEach(el=>{
     el.textContent=`v${version}`;
   });
@@ -219,7 +225,7 @@ function rpcDirect(action,payload={}){
   }
 
   const tokenSnapshot=token();
-  const authenticated=!!tokenSnapshot&&!['ping','login','publicDashboard'].includes(action);
+  const authenticated=!!tokenSnapshot&&!['ping','login','publicDashboard','publicSyncState'].includes(action);
 
   const hasDataLoading=WRITE_ACTIONS.has(action)||READ_ACTIONS.has(action);
   if(hasDataLoading)beginDataLoading(action);
@@ -306,6 +312,8 @@ function stopAssignmentWatcher(){
   assignmentPollCursor='';
   assignmentPollBusy=false;
   relatedTaskDataStale=false;
+  teamDataStale=false;
+  teamSyncRevision='';
 }
 
 async function startAssignmentWatcher(){
@@ -315,6 +323,7 @@ async function startAssignmentWatcher(){
   try{
     const init=await rpc('pollAssignedTasks',{since:''});
     assignmentPollCursor=String(init?.cursor||'');
+    teamSyncRevision=String(init?.syncRevisions?.team||'');
   }catch{
     assignmentPollCursor='';
   }
@@ -371,38 +380,65 @@ async function pollAssignedTaskNotifications(){
   if(document.hidden)return;
 
   assignmentPollBusy=true;
+
   try{
     const d=await rpc('pollAssignedTasks',{since:assignmentPollCursor});
     const nextCursor=String(d?.cursor||assignmentPollCursor);
+
     const newAssignments=Array.isArray(d?.newAssignments)
       ? d.newAssignments
       : (Array.isArray(d?.tasks)?d.tasks:[]);
+
     const relatedChanges=Array.isArray(d?.relatedChanges)
       ? d.relatedChanges
       : newAssignments;
 
-    assignmentPollCursor=nextCursor;
+    const nextTeamRevision=String(d?.syncRevisions?.team||'');
+    const teamChanged=!!(
+      nextTeamRevision &&
+      teamSyncRevision &&
+      nextTeamRevision!==teamSyncRevision
+    );
 
+    assignmentPollCursor=nextCursor;
+    if(nextTeamRevision)teamSyncRevision=nextTeamRevision;
+
+    // My Work + Assignment status synchronization.
     if(relatedChanges.length){
       const onMyWork=!!$('#myView')&&!$('#myView').classList.contains('hidden');
+      const onRequest=!!$('#requestView')&&!$('#requestView').classList.contains('hidden');
 
-      if(onMyWork){
-        // Any related task change must be reflected immediately while
-        // My Work is visible.
+      if(onMyWork||onRequest){
         await loadAll();
         relatedTaskDataStale=false;
       }else{
-        // Avoid interrupting forms in another view. Refresh automatically
-        // the next time the user opens My Work.
         relatedTaskDataStale=true;
       }
     }
 
+    // Team Attendance / Loading is a global team view. Any user whose
+    // operation changes Loading, leave, trip, holiday or membership must
+    // invalidate every logged-in user's cached Team Calendar.
+    if(teamChanged){
+      teamCalendarCache.clear();
+
+      const onTeam=!!$('#teamView')&&!$('#teamView').classList.contains('hidden');
+
+      if(onTeam){
+        await renderTeamCalendar(true);
+        teamDataStale=false;
+      }else{
+        teamDataStale=true;
+      }
+    }
+
     if(newAssignments.length){
+      // If B is already on My Work, loadAll above has refreshed the list
+      // before the popup is displayed.
       showAssignmentNotification(newAssignments);
     }
   }catch(err){
-    console.warn('Related task synchronization poll failed:',err);
+    console.warn('Related/team synchronization poll failed:',err);
   }finally{
     assignmentPollBusy=false;
   }
@@ -428,7 +464,7 @@ async function connectBackend(){
 
   try{
     const pingResult=await rpc('ping');
-    backendVersion=String(pingResult?.version||backendVersion||'2.11.2').replace(/^v/,'');
+    backendVersion=String(pingResult?.version||backendVersion||'2.11.3').replace(/^v/,'');
     backendReady=true;
     syncVersionDisplay();
     if($('#bridgeState')){
@@ -448,6 +484,7 @@ async function connectBackend(){
 
 function showLogin(){
   stopAssignmentWatcher();
+  stopDashboardSyncWatcher();
   me=null;
   app.innerHTML='';
   app.append($('#loginTpl').content.cloneNode(true));
@@ -503,9 +540,47 @@ function showLogin(){
 }
 
 
+
+function stopDashboardSyncWatcher(){
+  if(dashboardSyncTimer){
+    clearInterval(dashboardSyncTimer);
+    dashboardSyncTimer=null;
+  }
+  dashboardPublicRevision='';
+  dashboardSyncBusy=false;
+}
+
+function startDashboardSyncWatcher(){
+  stopDashboardSyncWatcher();
+
+  dashboardSyncTimer=setInterval(async()=>{
+    if(dashboardSyncBusy||document.hidden||!$('#dashboardContent'))return;
+
+    dashboardSyncBusy=true;
+    try{
+      const d=await rpc('publicSyncState');
+      const nextRevision=String(d?.public||'');
+
+      if(
+        nextRevision &&
+        dashboardPublicRevision &&
+        nextRevision!==dashboardPublicRevision
+      ){
+        $('#dashboardUpdateNotice')?.classList.remove('hidden');
+      }
+    }catch(err){
+      console.warn('Dashboard update check failed:',err);
+    }finally{
+      dashboardSyncBusy=false;
+    }
+  },DASHBOARD_SYNC_INTERVAL_MS);
+}
+
+
 async function showPublicDashboard(){
   // Public dashboard is intentionally independent from authentication.
-  // Clear any residual local token before entering this read-only surface.
+  stopAssignmentWatcher();
+  stopDashboardSyncWatcher();
   setToken('');
   me=null;
   app.innerHTML='';
@@ -515,6 +590,7 @@ async function showPublicDashboard(){
   $('#dashboardRefresh').addEventListener('click',loadPublicDashboard);
 
   await loadPublicDashboard();
+  startDashboardSyncWatcher();
 }
 
 async function loadPublicDashboard(){
@@ -543,6 +619,8 @@ async function loadPublicDashboard(){
 }
 
 function renderPublicDashboard(d){
+  dashboardPublicRevision=String(d.syncRevision||dashboardPublicRevision||'');
+  $('#dashboardUpdateNotice')?.classList.add('hidden');
   $('#dashboardGeneratedAt').textContent=fmtDateTime(d.generatedAt);
   $('#dashboardWeekRange').textContent=`工作週 ${fmtDate(d.weekStart)} ～ ${fmtDate(d.weekEnd)}`;
   $('#dashboardHorizonRange').textContent='依需求日期排序';
@@ -796,7 +874,17 @@ function switchView(name,btn){
     }
   }
 
-  if(name==='request')$('#requestView').classList.remove('hidden');
+  if(name==='request'){
+    $('#requestView').classList.remove('hidden');
+
+    if(relatedTaskDataStale){
+      relatedTaskDataStale=false;
+      loadAll().catch(err=>{
+        relatedTaskDataStale=true;
+        console.warn('Assignment view auto refresh failed:',err);
+      });
+    }
+  }
 
   if(name==='schedule'){
     $('#scheduleView').classList.remove('hidden');
@@ -805,7 +893,17 @@ function switchView(name,btn){
 
   if(name==='team'){
     $('#teamView').classList.remove('hidden');
-    renderTeamCalendar();
+
+    if(teamDataStale){
+      teamCalendarCache.clear();
+      teamDataStale=false;
+      renderTeamCalendar(true).catch(err=>{
+        teamDataStale=true;
+        console.warn('Team Calendar auto refresh failed:',err);
+      });
+    }else{
+      renderTeamCalendar();
+    }
   }
 
   if(name==='admin'){
@@ -813,6 +911,7 @@ function switchView(name,btn){
     renderAdmin();
   }
 }
+
 async function loadAll(){
   const expectedUserId=me?.id?String(me.id):'';
 
@@ -2051,7 +2150,7 @@ function scheduleAvailabilityCheck(form){clearTimeout(availabilityTimer);availab
 
 function availabilityHtml(d){const lines=[`預估期間最高 Loading：<strong>${Math.round(d.peakLoadPct)}%</strong>`];if(d.highLoadDates?.length)lines.push(`Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' ('+Math.round(x.loadPct)+'%)').join('、')}`);if(d.holidays?.length)lines.push(`國定假日：${d.holidays.map(x=>escapeHtml(x.holidayName)+' '+fmtDate(x.holidayDate)).join('；')}`);if(d.leaves?.length)lines.push(`請假：${d.leaves.map(x=>escapeHtml(x.leaveType)+' '+fmtLocalDateTime(x.startDateTime)+'～'+fmtLocalDateTime(x.endDateTime)).join('；')}`);if(d.trips?.length)lines.push(`出差：${d.trips.map(x=>escapeHtml(x.purpose)+' '+fmtDate(x.startDate)+'～'+fmtDate(x.endDate)).join('；')}`);if(!d.hasWarning)lines.push('此期間目前沒有 Loading > 80%、國定假日、請假或出差衝突。');return lines.map(x=>`<div class="hint-line">${x}</div>`).join('')}function availabilityConfirmText(d){const parts=['被派工者的行事曆有以下提示：'];if(d.highLoadDates?.length)parts.push(`• Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' '+Math.round(x.loadPct)+'%').join('、')}`);if(d.holidays?.length)parts.push(`• 有 ${d.holidays.length} 個國定假日`);if(d.leaves?.length)parts.push(`• 有 ${d.leaves.length} 筆請假`);if(d.trips?.length)parts.push(`• 有 ${d.trips.length} 筆出差`);parts.push('仍要送出派工嗎？');return parts.join('\n')}
 function renderSchedule(){const el=$('#scheduleView');if(!el)return;const leaveRows=myLeaves.map(x=>`<div class="record-card leave"><div><div class="record-title">${escapeHtml(x.leaveType)}</div><div>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div><div class="mini">只計入週一至週五工作日</div></div><button class="ghost" data-del-leave="${x.id}">刪除</button></div>`).join(''),tripRows=myTrips.map(x=>`<div class="record-card trip"><div><div class="record-title">${escapeHtml(x.purpose)}</div><div>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</div><div class="mini">以天為顆粒度，只計入週一至週五</div></div><button class="ghost" data-del-trip="${x.id}">刪除</button></div>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請假／出差設定</h1><div class="muted">請假可精確到分鐘；出差以天為單位</div></div></div><div class="schedule-grid"><form id="leaveForm" class="form-card"><h3>新增請假</h3><label>假別<input name="leaveType" list="leaveTypes" placeholder="例如：特休" required><datalist id="leaveTypes"><option value="特休"><option value="事假"><option value="病假"><option value="公假"><option value="其他"></datalist></label><label>開始時間<input type="datetime-local" name="startDateTime" step="60" required></label><label>結束時間<input type="datetime-local" name="endDateTime" step="60" required></label><button class="primary">新增請假</button></form><form id="tripForm" class="form-card"><h3>新增出差</h3><label>目的<textarea name="purpose" rows="3" placeholder="例如：台中工廠 UAT Workshop" required></textarea></label><label>開始日期<input type="date" name="startDate" required></label><label>結束日期<input type="date" name="endDate" required></label><button class="primary">新增出差</button></form></div><div class="schedule-grid"><div class="panel panel-pad"><h3>我的請假</h3><div class="record-list">${leaveRows||'<div class="empty">尚無請假紀錄</div>'}</div></div><div class="panel panel-pad"><h3>我的出差</h3><div class="record-list">${tripRows||'<div class="empty">尚無出差紀錄</div>'}</div></div></div>`;$('#leaveForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createLeave',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$('#tripForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createTrip',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$$('[data-del-leave]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此請假紀錄？'))return;try{await rpc('deleteLeave',{id:b.dataset.delLeave});await loadAll();renderSchedule()}catch(e){alert(e.message)}});$$('[data-del-trip]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此出差紀錄？'))return;try{await rpc('deleteTrip',{id:b.dataset.delTrip});await loadAll();renderSchedule()}catch(e){alert(e.message)}})}
-async function renderTeamCalendar(){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);const startDate=isoDate(teamStart),endDate=isoDate(end),cacheKey=`${startDate}|${endDate}`;try{let d=teamCalendarCache.get(cacheKey);if(!d){d=await rpc('teamCalendar',{startDate,endDate});teamCalendarCache.set(cacheKey,d)}drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
+async function renderTeamCalendar(forceRefresh=false){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);const startDate=isoDate(teamStart),endDate=isoDate(end),cacheKey=`${startDate}|${endDate}`;try{let d=forceRefresh?null:teamCalendarCache.get(cacheKey);if(!d){d=await rpc('teamCalendar',{startDate,endDate});teamCalendarCache.set(cacheKey,d)}drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
 function drawTeamGantt(data){
   const wrap=$('#teamGantt');
   if(!wrap)return;

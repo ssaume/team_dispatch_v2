@@ -37,7 +37,7 @@
           </button>
           <div id="loginError" class="error"></div>
         </form>
-        <div class="app-version">v2.11.2</div>
+        <div class="app-version">v2.11.3</div>
       </section>
     </main>
   </template>
@@ -71,6 +71,11 @@
           <div class="dashboard-security-note">
             此頁不需登入，因此僅顯示工作類型與排程資訊，不公開需求內容。
           </div>
+        </div>
+
+        <div id="dashboardUpdateNotice" class="dashboard-update-notice hidden">
+          <strong>有新的資料更新</strong>
+          <span>目前畫面仍保留原內容，請按右上角「重新整理」取得最新資料。</span>
         </div>
 
         <details class="dashboard-section dashboard-fold" open>
@@ -207,7 +212,7 @@
             <div id="whoami"></div>
             <button id="logoutBtn" class="ghost">登出</button>
           </div>
-          <div class="app-version sidebar-version">v2.11.2</div>
+          <div class="app-version sidebar-version">v2.11.3</div>
         </div>
       </aside>
 
