@@ -371,12 +371,13 @@ async function loadPublicDashboard(){
 function renderPublicDashboard(d){
   $('#dashboardGeneratedAt').textContent=fmtDateTime(d.generatedAt);
   $('#dashboardWeekRange').textContent=`工作週 ${fmtDate(d.weekStart)} ～ ${fmtDate(d.weekEnd)}`;
-  $('#dashboardHorizonRange').textContent=`${fmtDate(d.today)} ～ ${fmtDate(d.horizonEnd)} · 依需求日期排序`;
+  $('#dashboardHorizonRange').textContent='依需求日期排序';
 
   const leavePeople=d.todayLeavePeople||[];
   const week=d.currentWeekTasks||[];
   const cancelled=d.cancelledWeekTasks||[];
   const future=d.next15DaysTasks||[];
+  const heatmap=d.loadingHeatmap||{dates:[],members:[]};
 
   $('#dashboardTodayLeaveCount').textContent=`${leavePeople.length} 人`;
   $('#dashboardTodayLeaveDate').textContent=fmtDate(d.today);
@@ -384,14 +385,84 @@ function renderPublicDashboard(d){
   $('#dashboardCancelledCount').textContent=`${cancelled.length} 件`;
   $('#dashboardFutureCount').textContent=`${future.length} 件`;
   $('#dashboardCancelledRange').textContent=`${fmtDate(d.weekStart)} ～ ${fmtDate(d.calendarWeekEnd||d.weekEnd)}`;
+  $('#dashboardLoadingCount').textContent=`${(heatmap.members||[]).length} 人`;
+
+  if(heatmap.startDate&&heatmap.endDate){
+    $('#dashboardLoadingRange').textContent=`${fmtDate(heatmap.startDate)} ～ ${fmtDate(heatmap.endDate)} · 冷色低 Loading，暖色高 Loading`;
+  }
 
   $('#dashboardTodayLeave').innerHTML=dashboardTodayLeaveHtml(leavePeople);
   $('#dashboardWeekTasks').innerHTML=dashboardTaskTable(week,'week');
   $('#dashboardCancelledTasks').innerHTML=dashboardCancelledTaskTable(cancelled);
   $('#dashboardFutureTasks').innerHTML=dashboardTaskTable(future,'future');
+  $('#dashboardLoadingHeatmap').innerHTML=dashboardLoadingHeatmapHtml(heatmap);
 }
 
 
+
+
+
+function dashboardHeatClass(day){
+  if(!day||!day.workday)return 'heat-nonwork';
+  if(Number(day.availableHours||0)<=0)return 'heat-leave';
+
+  const pct=Number(day.loadPct||0);
+  if(pct<=0)return 'heat-zero';
+  if(pct<=40)return 'heat-cool-low';
+  if(pct<=80)return 'heat-cool-mid';
+  if(pct<=100)return 'heat-warm';
+  return 'heat-hot';
+}
+
+function dashboardLoadingHeatmapHtml(data){
+  const dates=Array.isArray(data?.dates)?data.dates:[];
+  const members=Array.isArray(data?.members)?data.members:[];
+
+  if(!dates.length||!members.length){
+    return '<div class="dashboard-empty">目前沒有可顯示的 Loading 資料。</div>';
+  }
+
+  const weekday=['日','一','二','三','四','五','六'];
+
+  const head=dates.map(d=>{
+    const dt=new Date(`${d}T12:00:00`);
+    const label=Number.isNaN(dt.getTime())?'':`${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}`;
+    const wd=Number.isNaN(dt.getTime())?'':weekday[dt.getDay()];
+    return `<th class="heat-date-head"><span>${label}</span><small>${wd}</small></th>`;
+  }).join('');
+
+  const body=members.map(member=>`
+    <tr>
+      <th class="heat-user-head">${escapeHtml(member.displayName)}</th>
+      ${dates.map(date=>{
+        const day=member.days?.[date]||{};
+        const cls=dashboardHeatClass(day);
+        const pct=Math.round(Number(day.loadPct||0));
+        const hours=num(day.loadHours||0);
+        const available=num(day.availableHours||0);
+
+        let text='-';
+        if(day.workday&&available<=0)text='休';
+        else if(day.workday)text=`${pct}%`;
+
+        const tip=day.workday
+          ? (available<=0
+              ? `${date} · 無可用工時`
+              : `${date} · Loading ${pct}% · ${hours}h / 可用 ${available}h`)
+          : `${date} · 非工作日`;
+
+        return `<td class="heat-cell ${cls}" title="${attr(tip)}"><span>${text}</span></td>`;
+      }).join('')}
+    </tr>
+  `).join('');
+
+  return `<div class="loading-heatmap-scroll">
+    <table class="loading-heatmap-table">
+      <thead><tr><th class="heat-user-head heat-corner">人員</th>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>`;
+}
 
 
 function fmtTimeOnly(v){
@@ -427,7 +498,7 @@ function dashboardCancelledTaskTable(tasks){
 
 function dashboardTaskTable(tasks,mode){
   if(!tasks.length){
-    return `<div class="dashboard-empty">${mode==='week'?'本工作週沒有執行中任務。':'未來 15 天沒有到期的未結任務。'}</div>`;
+    return `<div class="dashboard-empty">${mode==='week'?'本工作週沒有執行中任務。':'目前沒有已派發的未來任務。'}</div>`;
   }
 
   return `<div class="panel table-scroll dashboard-table-wrap">

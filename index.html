@@ -37,7 +37,7 @@
           </button>
           <div id="loginError" class="error"></div>
         </form>
-        <div class="app-version">v2.8.6</div>
+        <div class="app-version">v2.9.0</div>
       </section>
     </main>
   </template>
@@ -73,46 +73,91 @@
           </div>
         </div>
 
-        <section class="dashboard-section">
-          <div class="dashboard-section-head">
+        <details class="dashboard-section dashboard-fold" open>
+          <summary class="dashboard-section-head">
             <div>
               <h2>當日休假人員</h2>
               <div id="dashboardTodayLeaveDate" class="muted"></div>
             </div>
-            <div id="dashboardTodayLeaveCount" class="dashboard-count"></div>
+            <div class="dashboard-summary-right">
+              <div id="dashboardTodayLeaveCount" class="dashboard-count"></div>
+              <span class="dashboard-fold-indicator" aria-hidden="true"></span>
+            </div>
+          </summary>
+          <div class="dashboard-fold-body">
+            <div id="dashboardTodayLeave"></div>
           </div>
-          <div id="dashboardTodayLeave"></div>
-        </section>
+        </details>
 
-        <section class="dashboard-section">
-          <div class="dashboard-section-head">
+        <details class="dashboard-section dashboard-fold" open>
+          <summary class="dashboard-section-head">
             <div>
               <h2>本週執行中任務</h2>
               <div id="dashboardWeekRange" class="muted"></div>
             </div>
-            <div id="dashboardWeekCount" class="dashboard-count"></div>
-          </div>
-          <div id="dashboardWeekTasks"></div>
-        </section>
-
-        <section class="dashboard-section">
-          <div class="dashboard-section-head">
-            <div><h2>當週任務中止</h2><div id="dashboardCancelledRange" class="muted"></div></div>
-            <div id="dashboardCancelledCount" class="dashboard-count"></div>
-          </div>
-          <div id="dashboardCancelledTasks"></div>
-        </section>
-
-        <section class="dashboard-section">
-          <div class="dashboard-section-head">
-            <div>
-              <h2>未來 15 天任務</h2>
-              <div id="dashboardHorizonRange" class="muted">依剩餘工作量由高到低排序</div>
+            <div class="dashboard-summary-right">
+              <div id="dashboardWeekCount" class="dashboard-count"></div>
+              <span class="dashboard-fold-indicator" aria-hidden="true"></span>
             </div>
-            <div id="dashboardFutureCount" class="dashboard-count"></div>
+          </summary>
+          <div class="dashboard-fold-body">
+            <div id="dashboardWeekTasks"></div>
           </div>
-          <div id="dashboardFutureTasks"></div>
-        </section>
+        </details>
+
+        <details class="dashboard-section dashboard-fold" open>
+          <summary class="dashboard-section-head">
+            <div>
+              <h2>當週任務中止</h2>
+              <div id="dashboardCancelledRange" class="muted"></div>
+            </div>
+            <div class="dashboard-summary-right">
+              <div id="dashboardCancelledCount" class="dashboard-count"></div>
+              <span class="dashboard-fold-indicator" aria-hidden="true"></span>
+            </div>
+          </summary>
+          <div class="dashboard-fold-body">
+            <div id="dashboardCancelledTasks"></div>
+          </div>
+        </details>
+
+        <details class="dashboard-section dashboard-fold" open>
+          <summary class="dashboard-section-head">
+            <div>
+              <h2>已派發未來任務</h2>
+              <div id="dashboardHorizonRange" class="muted">依需求日期排序</div>
+            </div>
+            <div class="dashboard-summary-right">
+              <div id="dashboardFutureCount" class="dashboard-count"></div>
+              <span class="dashboard-fold-indicator" aria-hidden="true"></span>
+            </div>
+          </summary>
+          <div class="dashboard-fold-body">
+            <div id="dashboardFutureTasks"></div>
+          </div>
+        </details>
+
+        <details class="dashboard-section dashboard-fold dashboard-loading-section" open>
+          <summary class="dashboard-section-head">
+            <div>
+              <h2>團隊 Loading 熱力圖</h2>
+              <div id="dashboardLoadingRange" class="muted">未來兩週 · 冷色低 Loading，暖色高 Loading</div>
+            </div>
+            <div class="dashboard-summary-right">
+              <div id="dashboardLoadingCount" class="dashboard-count"></div>
+              <span class="dashboard-fold-indicator" aria-hidden="true"></span>
+            </div>
+          </summary>
+          <div class="dashboard-fold-body">
+            <div class="loading-heatmap-legend">
+              <span><i class="heat-swatch heat-cool-low"></i>低</span>
+              <span><i class="heat-swatch heat-cool-mid"></i>中</span>
+              <span><i class="heat-swatch heat-warm"></i>高</span>
+              <span><i class="heat-swatch heat-hot"></i>超載</span>
+            </div>
+            <div id="dashboardLoadingHeatmap"></div>
+          </div>
+        </details>
       </section>
     </main>
   </template>
@@ -133,7 +178,7 @@
             <div id="whoami"></div>
             <button id="logoutBtn" class="ghost">登出</button>
           </div>
-          <div class="app-version sidebar-version">v2.8.6</div>
+          <div class="app-version sidebar-version">v2.9.0</div>
         </div>
       </aside>
 
