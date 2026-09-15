@@ -1,6 +1,6 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.2';
 let assignmentPollTimer=null;
 let assignmentPollCursor='';
 let assignmentPollBusy=false;
@@ -51,6 +51,14 @@ function setToken(v){
   if(v)sessionStorage.setItem('teamDispatchToken',v);
   else sessionStorage.removeItem('teamDispatchToken');
 }
+
+function syncVersionDisplay(){
+  const version=String(backendVersion||'2.11.2').replace(/^v/,'');
+  $$('.app-version').forEach(el=>{
+    el.textContent=`v${version}`;
+  });
+}
+
 
 const WRITE_ACTIONS=new Set([
   'createTask','createSelfTask','acceptTask','rejectTask',
@@ -419,8 +427,10 @@ async function connectBackend(){
   }
 
   try{
-    await rpc('ping');
+    const pingResult=await rpc('ping');
+    backendVersion=String(pingResult?.version||backendVersion||'2.11.2').replace(/^v/,'');
     backendReady=true;
+    syncVersionDisplay();
     if($('#bridgeState')){
       $('#bridgeState').textContent='Google Drive 已連線';
       $('#bridgeState').className='bridge-state ok';
@@ -441,6 +451,7 @@ function showLogin(){
   me=null;
   app.innerHTML='';
   app.append($('#loginTpl').content.cloneNode(true));
+  syncVersionDisplay();
 
   const form=$('#loginForm');
   const loginBtn=$('#loginBtn');
@@ -760,7 +771,7 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }stopAssignmentWatcher();setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#stopTaskClose').onclick=$('#stopTaskCancel').onclick=()=>$('#stopTaskDialog').close();$('#stopTaskForm').addEventListener('submit',handleStopTask);$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint);
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));syncVersionDisplay();$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }stopAssignmentWatcher();setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#stopTaskClose').onclick=$('#stopTaskCancel').onclick=()=>$('#stopTaskDialog').close();$('#stopTaskForm').addEventListener('submit',handleStopTask);$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint);
 $('#assignmentNotificationClose')?.addEventListener('click',()=>$('#assignmentNotificationDialog').close());
 $('#assignmentNotificationGoMy')?.addEventListener('click',()=>{
   $('#assignmentNotificationDialog').close();
