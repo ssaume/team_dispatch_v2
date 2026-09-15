@@ -37,7 +37,7 @@
           </button>
           <div id="loginError" class="error"></div>
         </form>
-        <div class="app-version">v2.9.1</div>
+        <div class="app-version">v2.10.0</div>
       </section>
     </main>
   </template>
@@ -76,8 +76,24 @@
         <details class="dashboard-section dashboard-fold" open>
           <summary class="dashboard-section-head">
             <div>
-              <h2>當日休假人員</h2>
-              <div id="dashboardTodayLeaveDate" class="muted"></div>
+              <h2>近期出差人員</h2>
+              <div id="dashboardTripRange" class="muted">未來一個月</div>
+            </div>
+            <div class="dashboard-summary-right">
+              <div id="dashboardTripCount" class="dashboard-count"></div>
+              <span class="dashboard-fold-indicator" aria-hidden="true"></span>
+            </div>
+          </summary>
+          <div class="dashboard-fold-body">
+            <div id="dashboardRecentTrips"></div>
+          </div>
+        </details>
+
+        <details class="dashboard-section dashboard-fold" open>
+          <summary class="dashboard-section-head">
+            <div>
+              <h2>休假計畫</h2>
+              <div id="dashboardLeaveRange" class="muted"></div>
             </div>
             <div class="dashboard-summary-right">
               <div id="dashboardTodayLeaveCount" class="dashboard-count"></div>
@@ -85,7 +101,16 @@
             </div>
           </summary>
           <div class="dashboard-fold-body">
-            <div id="dashboardTodayLeave"></div>
+            <div class="dashboard-tabs" role="tablist">
+              <button type="button" class="dashboard-tab active" data-leave-tab="today">當日</button>
+              <button type="button" class="dashboard-tab" data-leave-tab="future">未來一個月</button>
+            </div>
+            <div id="dashboardLeaveTodayPanel" class="dashboard-tab-panel">
+              <div id="dashboardTodayLeave"></div>
+            </div>
+            <div id="dashboardLeaveFuturePanel" class="dashboard-tab-panel hidden">
+              <div id="dashboardFutureLeaves"></div>
+            </div>
           </div>
         </details>
 
@@ -182,7 +207,7 @@
             <div id="whoami"></div>
             <button id="logoutBtn" class="ghost">登出</button>
           </div>
-          <div class="app-version sidebar-version">v2.9.1</div>
+          <div class="app-version sidebar-version">v2.10.0</div>
         </div>
       </aside>
 

@@ -104,6 +104,7 @@ const DATA_LOADING_MESSAGES={
 };
 
 let dataLoadingCount=0;
+let writeRpcQueue=Promise.resolve();
 
 function beginDataLoading(action){
   dataLoadingCount++;
@@ -152,6 +153,27 @@ function isStaleSessionError(err){
   return !!err&&err.code==='STALE_SESSION';
 }
 
+function findTaskSnapshot(taskId){
+  return [...incoming,...outgoing, ...adminTasks]
+    .find(x=>String(x.id)===String(taskId))||null;
+}
+function taskVersionPayload(taskOrId,payload={}){
+  const t=typeof taskOrId==='object'?taskOrId:findTaskSnapshot(taskOrId);
+  return {
+    ...payload,
+    expectedUpdatedAt:t?.updatedAt||''
+  };
+}
+function isConflictError(err){
+  return !!err&&/^CONFLICT:/.test(String(err.message||''));
+}
+async function handleConflictError(err){
+  if(!isConflictError(err))return false;
+  alert(String(err.message).replace(/^CONFLICT:\s*/,'')+'\\n\\n畫面將重新整理最新資料。');
+  if(me)await loadAll();
+  return true;
+}
+
 function validGoogleOrigin(origin){try{const u=new URL(origin);return u.protocol==='https:'&&(u.hostname==='script.google.com'||u.hostname==='script.googleusercontent.com'||u.hostname.endsWith('.googleusercontent.com'))}catch{return false}}
 window.addEventListener('message',ev=>{
   if(!validGoogleOrigin(ev.origin))return;
@@ -164,6 +186,7 @@ window.addEventListener('message',ev=>{
 
   pendingRpc.delete(m.id);
   clearTimeout(p.timer);
+  if(p.slowTimer)clearTimeout(p.slowTimer);
 
   try{p.iframe.remove()}catch{}
   if(p.hasDataLoading)endDataLoading();
@@ -177,7 +200,7 @@ window.addEventListener('message',ev=>{
 
   m.ok?p.resolve(m.result):p.reject(new Error(m.error||'操作失敗'));
 });
-function rpc(action,payload={}){
+function rpcDirect(action,payload={}){
   if(!cfg.APPS_SCRIPT_URL||cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){
     return Promise.reject(new Error('尚未設定 Apps Script URL'));
   }
@@ -218,14 +241,23 @@ function rpc(action,payload={}){
     form.appendChild(data);
     document.body.appendChild(form);
 
+    const timeoutMs=Math.max(Number(cfg.REQUEST_TIMEOUT_MS||0),WRITE_ACTIONS.has(action)?45000:30000);
+    const slowTimer=setTimeout(()=>{
+      const text=$('#commitLoadingText');
+      if(text&&pendingRpc.has(id)){
+        text.textContent='Google Apps Script 正在排隊處理，請勿重複送出；系統會繼續等待回應…';
+      }
+    },8000);
+
     const timer=setTimeout(()=>{
       pendingRpc.delete(id);
+      clearTimeout(slowTimer);
       try{iframe.remove()}catch{}
       if(hasDataLoading)endDataLoading();
-      reject(new Error('Google Apps Script 回應逾時'));
-    },cfg.REQUEST_TIMEOUT_MS||20000);
+      reject(new Error('Google Apps Script 等待超過預期時間，請確認資料是否已更新後再重試'));
+    },timeoutMs);
 
-    pendingRpc.set(id,{resolve,reject,timer,iframe,hasDataLoading,tokenSnapshot,authenticated});
+    pendingRpc.set(id,{resolve,reject,timer,slowTimer,iframe,hasDataLoading,tokenSnapshot,authenticated});
 
     try{
       form.submit();
@@ -240,6 +272,18 @@ function rpc(action,payload={}){
     }
   });
 }
+
+function rpc(action,payload={}){
+  if(!WRITE_ACTIONS.has(action)){
+    return rpcDirect(action,payload);
+  }
+
+  const run=()=>rpcDirect(action,payload);
+  const queued=writeRpcQueue.then(run,run);
+  writeRpcQueue=queued.catch(()=>{});
+  return queued;
+}
+
 async function connectBackend(){
   // v1.4.1: opening / refreshing the site always returns to the login screen.
   // Do not silently restore a previous local session.
@@ -374,13 +418,17 @@ function renderPublicDashboard(d){
   $('#dashboardHorizonRange').textContent='依需求日期排序';
 
   const leavePeople=d.todayLeavePeople||[];
+  const futureLeaves=d.futureLeavePlans||[];
+  const recentTrips=d.recentTrips||[];
   const week=d.currentWeekTasks||[];
   const cancelled=d.cancelledWeekTasks||[];
   const future=d.futureTasks||d.next15DaysTasks||[];
   const heatmap=d.loadingHeatmap||{dates:[],members:[]};
 
-  $('#dashboardTodayLeaveCount').textContent=`${leavePeople.length} 人`;
-  $('#dashboardTodayLeaveDate').textContent=fmtDate(d.today);
+  $('#dashboardTodayLeaveCount').textContent=`${leavePeople.length + futureLeaves.length} 筆`;
+  $('#dashboardLeaveRange').textContent=`${fmtDate(d.today)} ～ ${fmtDate(d.monthEnd||d.horizonEnd)}`;
+  $('#dashboardTripCount').textContent=`${recentTrips.length} 筆`;
+  $('#dashboardTripRange').textContent=`${fmtDate(d.today)} ～ ${fmtDate(d.monthEnd||d.horizonEnd)}`;
   $('#dashboardWeekCount').textContent=`${week.length} 件`;
   $('#dashboardCancelledCount').textContent=`${cancelled.length} 件`;
   $('#dashboardFutureCount').textContent=`${future.length} 件`;
@@ -392,6 +440,9 @@ function renderPublicDashboard(d){
   }
 
   $('#dashboardTodayLeave').innerHTML=dashboardTodayLeaveHtml(leavePeople);
+  $('#dashboardFutureLeaves').innerHTML=dashboardFutureLeaveHtml(futureLeaves);
+  $('#dashboardRecentTrips').innerHTML=dashboardRecentTripsHtml(recentTrips);
+  bindDashboardLeaveTabs();
   $('#dashboardWeekTasks').innerHTML=dashboardTaskTable(week,'week');
   $('#dashboardCancelledTasks').innerHTML=dashboardCancelledTaskTable(cancelled);
   $('#dashboardFutureTasks').innerHTML=dashboardTaskTable(future,'future');
@@ -479,6 +530,37 @@ function dashboardLoadingHeatmapHtml(data){
   </div>`;
 }
 
+
+
+function bindDashboardLeaveTabs(){
+  $$('[data-leave-tab]').forEach(btn=>{
+    btn.onclick=()=>{
+      $$('[data-leave-tab]').forEach(x=>x.classList.toggle('active',x===btn));
+      $('#dashboardLeaveTodayPanel')?.classList.toggle('hidden',btn.dataset.leaveTab!=='today');
+      $('#dashboardLeaveFuturePanel')?.classList.toggle('hidden',btn.dataset.leaveTab!=='future');
+    };
+  });
+}
+
+function dashboardRecentTripsHtml(rows){
+  if(!rows.length)return '<div class="dashboard-empty">未來一個月沒有出差計畫。</div>';
+  return `<div class="dashboard-plan-grid">${rows.map(x=>`
+    <div class="dashboard-plan-card trip">
+      <strong>${escapeHtml(x.displayName)}</strong>
+      <span>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</span>
+      <small>${escapeHtml(x.purpose||'出差')}</small>
+    </div>`).join('')}</div>`;
+}
+
+function dashboardFutureLeaveHtml(rows){
+  if(!rows.length)return '<div class="dashboard-empty">未來一個月沒有休假計畫。</div>';
+  return `<div class="dashboard-plan-grid">${rows.map(x=>`
+    <div class="dashboard-plan-card leave">
+      <strong>${escapeHtml(x.displayName)}</strong>
+      <span>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</span>
+      <small>${escapeHtml(x.leaveType||'休假')}</small>
+    </div>`).join('')}</div>`;
+}
 
 function fmtTimeOnly(v){
   const d=new Date(v);
@@ -704,7 +786,7 @@ function bindTaskActions(root){
 
   $$('[data-accept]',root).forEach(b=>b.addEventListener('click',async()=>{
     try{
-      await rpc('acceptTask',{taskId:b.dataset.accept});
+      await rpc('acceptTask',taskVersionPayload(b.dataset.accept,{taskId:b.dataset.accept}));
       await loadAll();
     }catch(e){alert(e.message)}
   }));
@@ -717,7 +799,7 @@ function bindTaskActions(root){
 
   $$('[data-urgent]',root).forEach(b=>b.addEventListener('click',async()=>{
     try{
-      await rpc('setUrgent',{taskId:b.dataset.urgent,urgent:b.dataset.value==='1'});
+      await rpc('setUrgent',taskVersionPayload(b.dataset.urgent,{taskId:b.dataset.urgent,urgent:b.dataset.value==='1'}));
       await loadAll();
     }catch(e){alert(e.message)}
   }));
@@ -750,7 +832,7 @@ async function restartTaskFromUi(taskId){
   const t=incoming.find(x=>String(x.id)===String(taskId));
   if(!t)return;
 
-  const payload={taskId:t.id};
+  const payload=taskVersionPayload(t,{taskId:t.id});
 
   if(String(t.requestDate)<isoDate(new Date())){
     const requestDate=prompt('原需求日已過，請輸入新的需求日期（YYYY-MM-DD）',isoDate(new Date()));
@@ -777,7 +859,7 @@ async function restartTaskFromUi(taskId){
   }
 }
 
-async function handleReject(e){e.preventDefault();const fd=new FormData(e.currentTarget);try{await rpc('rejectTask',{taskId:fd.get('task_id'),reason:fd.get('reason')});$('#rejectDialog').close();await loadAll()}catch(err){alert(err.message)}}
+async function handleReject(e){e.preventDefault();const fd=new FormData(e.currentTarget);try{await rpc('rejectTask',taskVersionPayload(fd.get('task_id'),{taskId:fd.get('task_id'),reason:fd.get('reason')}));$('#rejectDialog').close();await loadAll()}catch(err){alert(err.message)}}
 
 function taskScheduleStartDate(t){
   if(t.isPeriodic&&t.periodStartDate)return String(t.periodStartDate).slice(0,10);
@@ -940,6 +1022,7 @@ function openStopTaskDialog(task,source='user'){
   form.reset();
   form.elements.taskId.value=task.id;
   form.elements.source.value=source;
+  form.dataset.expectedUpdatedAt=task.updatedAt||'';
   $('#stopTaskSummary').textContent=`${task.workType} · ${task.assigneeName||''}`;
   $('#stopTaskDialog').showModal();
 }
@@ -958,7 +1041,7 @@ async function handleStopTask(e){
   }
 
   try{
-    await rpc('stopTask',{taskId,reason});
+    await rpc('stopTask',{taskId,reason,expectedUpdatedAt:form.dataset.expectedUpdatedAt||''});
     $('#stopTaskDialog').close();
 
     if(source==='admin-user'&&adminUserWorkContext){
@@ -1000,9 +1083,11 @@ function openDetail(id){
                  ? groupedAllocations.map(a=>{
                      const leaveHours=leaveHoursOnDateClient(a.workDate);
                      const availableHours=Math.max(0,8-leaveHours);
-                     return `<div class="allocation-row schedule-edit-row" data-schedule-date="${attr(a.workDate)}">
+                     const historical=String(a.workDate)<isoDate(new Date());
+                     return `<div class="allocation-row schedule-edit-row ${historical?'schedule-history-row':''}" data-schedule-date="${attr(a.workDate)}">
                        <div>
                          <strong>${fmtDate(a.workDate)}</strong>
+                         ${historical?'<div class="mini">已發生工時 · 鎖定</div>':''}
                          ${leaveHours>0
                            ? `<div class="mini">${availableHours>0?`請假後可用 ${num(availableHours)}h`:'整天請假'}</div>`
                            : ''}
@@ -1010,9 +1095,9 @@ function openDetail(id){
                        <div class="schedule-hours-control">
                          <input type="number" min="0.01" max="999" step="0.01"
                            value="${num(a.hours)}"
-                           data-schedule-hours="${attr(a.workDate)}">
+                           data-schedule-hours="${attr(a.workDate)}" ${historical?'disabled':''}>
                          <span>h</span>
-                         <button type="button" class="ghost" data-remove-schedule="${attr(a.workDate)}">移除</button>
+                         ${historical?'':'<button type="button" class="ghost" data-remove-schedule="'+attr(a.workDate)+'">移除</button>'}
                        </div>
                      </div>`;
                    }).join('')
@@ -1246,10 +1331,10 @@ function openDetail(id){
       }
 
       try{
-        await rpc('updateTaskSchedule',{
+        await rpc('updateTaskSchedule',taskVersionPayload(t,{
           taskId:t.id,
           entries:JSON.stringify(entries)
-        });
+        }));
         await loadAll();
         openDetail(t.id);
       }catch(err){
@@ -1270,7 +1355,7 @@ function openDetail(id){
       }
 
       try{
-        await rpc('addTaskCollaborators',{taskId:t.id,userIds});
+        await rpc('addTaskCollaborators',taskVersionPayload(t,{taskId:t.id,userIds}));
         await loadAll();
         openDetail(t.id);
       }catch(err){
@@ -1285,7 +1370,7 @@ function openDetail(id){
       const requestDate=$('#taskRequestDateInput').value;
       if(!requestDate){alert('請選擇需求日期');return}
       try{
-        await rpc('updateSelfTaskRequestDate',{taskId:t.id,requestDate});
+        await rpc('updateSelfTaskRequestDate',taskVersionPayload(t,{taskId:t.id,requestDate}));
         await loadAll();
         openDetail(t.id);
       }catch(err){alert(err.message)}
@@ -1299,7 +1384,7 @@ function openDetail(id){
       const content=$('#taskContentInput').value.trim();
       if(!workType||!content){alert('工作類型與需求內容不可空白');return}
       try{
-        await rpc('updateTaskDetails',{taskId:t.id,workType,content});
+        await rpc('updateTaskDetails',taskVersionPayload(t,{taskId:t.id,workType,content}));
         await loadAll();
         openDetail(t.id);
       }catch(err){alert(err.message)}
@@ -1332,7 +1417,7 @@ function openDetail(id){
         return;
       }
       try{
-        await rpc('updateTaskPlannedHours',{taskId:t.id,plannedHours});
+        await rpc('updateTaskPlannedHours',taskVersionPayload(t,{taskId:t.id,plannedHours}));
         await loadAll();
         openDetail(t.id);
       }catch(err){
@@ -1346,7 +1431,7 @@ function openDetail(id){
     visibilityBtn.addEventListener('click',async()=>{
       const visibility=$('#taskVisibilitySelect').value;
       try{
-        await rpc('setTaskVisibility',{taskId:t.id,visibility});
+        await rpc('setTaskVisibility',taskVersionPayload(t,{taskId:t.id,visibility}));
         await loadAll();
         openDetail(t.id);
       }catch(err){
@@ -1389,7 +1474,8 @@ async function handleMoveAllocation(e){
     merge=confirm(`目標日期已有相同任務共 ${num(same.reduce((s,x)=>s+Number(x.hours||0),0))}h。\n\n按「確定」：與目標日任務合併。\n按「取消」：仍移動，但保留為獨立區塊。`);
   }
   try{
-    await rpc('moveAllocation',{allocationId,targetDate,merge});
+    const task=findTaskSnapshot(a.taskId);
+    await rpc('moveAllocation',taskVersionPayload(task,{allocationId,targetDate,merge}));
     $('#moveAllocationDialog').close();
     await loadAll();
     openDetail(a.taskId);
@@ -1460,7 +1546,8 @@ async function handleSplitAllocation(e){
   }
 
   try{
-    await rpc('splitAllocation',{allocationId,targetDate,movePercent,mergeTarget});
+    const task=findTaskSnapshot(a.taskId);
+    await rpc('splitAllocation',taskVersionPayload(task,{allocationId,targetDate,movePercent,mergeTarget}));
     $('#splitAllocationDialog').close();
     await loadAll();
     openDetail(a.taskId);
@@ -2441,17 +2528,17 @@ function openAdminUserTaskDetail(taskId){
 
   $('#adminToggleUrgent')?.addEventListener('click',async()=>{
     try{
-      await rpc('setUrgent',{taskId:t.id,urgent:!t.urgent});
+      await rpc('setUrgent',taskVersionPayload(t,{taskId:t.id,urgent:!t.urgent}));
       await refresh();
     }catch(err){alert(err.message)}
   });
 
   $('#adminToggleCompleted')?.addEventListener('click',async()=>{
     try{
-      await rpc('setCompleted',{
+      await rpc('setCompleted',taskVersionPayload(t,{
         taskId:t.id,
         completed:t.status!=='completed'
-      });
+      }));
       await refresh();
     }catch(err){alert(err.message)}
   });
