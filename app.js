@@ -4,6 +4,7 @@ let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;
 let assignmentPollTimer=null;
 let assignmentPollCursor='';
 let assignmentPollBusy=false;
+let relatedTaskDataStale=false;
 const ASSIGNMENT_POLL_INTERVAL_MS=15000;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
 function startOfWeek(d){const x=new Date(d),day=x.getDay(),diff=day===0?-6:1-day;x.setDate(x.getDate()+diff);x.setHours(0,0,0,0);return x}function isoDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}function dateOnly(s){return s?new Date(`${String(s).slice(0,10)}T00:00:00`):null}function fmtDate(s){if(!s)return'-';const d=dateOnly(s);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}function fmtDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?String(s):d.toLocaleString('zh-TW',{hour12:false})}function fmtLocalDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toLocaleString('zh-TW',{hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function isWorkdayDate(d){return ![0,6].includes(new Date(d).getDay())}
@@ -296,6 +297,7 @@ function stopAssignmentWatcher(){
   }
   assignmentPollCursor='';
   assignmentPollBusy=false;
+  relatedTaskDataStale=false;
 }
 
 async function startAssignmentWatcher(){
@@ -364,22 +366,35 @@ async function pollAssignedTaskNotifications(){
   try{
     const d=await rpc('pollAssignedTasks',{since:assignmentPollCursor});
     const nextCursor=String(d?.cursor||assignmentPollCursor);
-    const tasks=Array.isArray(d?.tasks)?d.tasks:[];
+    const newAssignments=Array.isArray(d?.newAssignments)
+      ? d.newAssignments
+      : (Array.isArray(d?.tasks)?d.tasks:[]);
+    const relatedChanges=Array.isArray(d?.relatedChanges)
+      ? d.relatedChanges
+      : newAssignments;
+
     assignmentPollCursor=nextCursor;
 
-    if(!tasks.length)return;
+    if(relatedChanges.length){
+      const onMyWork=!!$('#myView')&&!$('#myView').classList.contains('hidden');
 
-    const onMyWork=!!$('#myView')&&!$('#myView').classList.contains('hidden');
-    if(onMyWork){
-      // New assignment must appear immediately if the user is already
-      // viewing My Work.
-      await loadAll();
+      if(onMyWork){
+        // Any related task change must be reflected immediately while
+        // My Work is visible.
+        await loadAll();
+        relatedTaskDataStale=false;
+      }else{
+        // Avoid interrupting forms in another view. Refresh automatically
+        // the next time the user opens My Work.
+        relatedTaskDataStale=true;
+      }
     }
 
-    showAssignmentNotification(tasks);
+    if(newAssignments.length){
+      showAssignmentNotification(newAssignments);
+    }
   }catch(err){
-    // Notification polling must never interrupt normal work.
-    console.warn('Assignment notification poll failed:',err);
+    console.warn('Related task synchronization poll failed:',err);
   }finally{
     assignmentPollBusy=false;
   }
@@ -753,7 +768,40 @@ $('#assignmentNotificationGoMy')?.addEventListener('click',()=>{
   switchView('my',btn);
   loadAll();
 })}
-function switchView(name,btn){$$('.view').forEach(v=>v.classList.add('hidden'));$$('.nav-btn').forEach(v=>v.classList.remove('active'));btn?.classList.add('active');if(name==='my')$('#myView').classList.remove('hidden');if(name==='request')$('#requestView').classList.remove('hidden');if(name==='schedule'){$('#scheduleView').classList.remove('hidden');renderSchedule()}if(name==='team'){$('#teamView').classList.remove('hidden');renderTeamCalendar()}if(name==='admin'){$('#adminView').classList.remove('hidden');renderAdmin()}}
+function switchView(name,btn){
+  $$('.view').forEach(v=>v.classList.add('hidden'));
+  $$('.nav-btn').forEach(v=>v.classList.remove('active'));
+  btn?.classList.add('active');
+
+  if(name==='my'){
+    $('#myView').classList.remove('hidden');
+
+    if(relatedTaskDataStale){
+      relatedTaskDataStale=false;
+      loadAll().catch(err=>{
+        relatedTaskDataStale=true;
+        console.warn('My Work auto refresh failed:',err);
+      });
+    }
+  }
+
+  if(name==='request')$('#requestView').classList.remove('hidden');
+
+  if(name==='schedule'){
+    $('#scheduleView').classList.remove('hidden');
+    renderSchedule();
+  }
+
+  if(name==='team'){
+    $('#teamView').classList.remove('hidden');
+    renderTeamCalendar();
+  }
+
+  if(name==='admin'){
+    $('#adminView').classList.remove('hidden');
+    renderAdmin();
+  }
+}
 async function loadAll(){
   const expectedUserId=me?.id?String(me.id):'';
 

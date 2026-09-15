@@ -1,41 +1,86 @@
-# Team Dispatch v2.11.0
+# Team Dispatch v2.11.1
 
-## 新任務登入中通知
+本版補強 v2.11.0 的登入中同步機制。
 
-當 A 透過「指派任務」建立 B 的新任務，而 B 當下已登入 Team Dispatch：
+## 問題
 
-- B 每 15 秒執行一次輕量 `pollAssignedTasks`
-- 只查 B 自己在上次 server cursor 之後新建立的 Task
-- 不重載整個 DB
-- 偵測到新任務後以 Dialog 顯示
-- 內容包含任務、派工者、需求日、預估工時、狀態
-- 同一輪偵測到多筆任務時合併成一個通知視窗
+v2.11.0 只會通知「新建立並指派給自己的 Task」。
 
-第一次 poll 只建立 server cursor，因此不會把登入前的歷史 pending 任務全部彈出。
+如果相關 User 已登入，但另一位 User 對既有 Task 做：
+- 接受 / 拒絕
+- 完成 / 重啟
+- 中止
+- 修改需求日
+- 修改總工時
+- 修改日排程
+- 修改內容
+- 加入共同作業
+- 共同作業其他成員狀態變更
 
-## 我的工作強制刷新
+其他關聯 User 的「我的工作」不一定會自動更新。
 
-如果 B 收到新任務時剛好正在「我的工作」：
-1. 先執行 `loadAll()`
-2. 強制更新工作資料
-3. 再顯示通知視窗
+## v2.11.1
 
-因此畫面上的任務清單會先更新，再通知使用者。
+`pollAssignedTasks` 擴充為「關聯任務變更輪詢」。
 
-## 效能與 Queue
+關聯範圍：
+- user 是 requester
+- user 是 assignee
+- user 目前存在於同一 collaborationGroupId
 
-`pollAssignedTasks` 是 lightweight read：
-- 不顯示全頁 loading
-- 不加入 write queue
-- 瀏覽器分頁在背景時不 polling
-- 暫時性 Apps Script / 網路錯誤只記錄 console，不打斷使用者
-- 下一輪會自動繼續
+每 15 秒檢查：
+`updatedAt > 上次 server cursor`
 
-Polling interval：15 秒。
+### 如果 User 正在「我的工作」
+
+偵測到任何關聯 Task 更新：
+1. 立即執行 `loadAll()`
+2. 重新整理我的工作
+3. 狀態 / 日期 / 工時 / 排程同步
+
+### 如果 User 在其他頁面
+
+不立即 loadAll，避免打斷正在輸入的：
+- 指派任務
+- 請假 / 出差
+- 管理畫面
+
+而是標記 `relatedTaskDataStale = true`。
+
+下次切到「我的工作」：
+- 自動執行 `loadAll()`
+- 不需要手動重新整理
+
+### 新派工通知
+
+仍維持 v2.11.0：
+- 新 Task 指派給自己才彈通知 Dialog
+- 一般狀態變更只同步資料，不一直跳通知
+
+## 效能
+
+仍然使用 lightweight polling：
+- 15 秒一次
+- 只讀 Users + Tasks
+- 不讀 Allocations / Leaves / Trips / Holidays
+- background tab 不 polling
+- 只有偵測到真正 related task change 時才執行 loadAll
+
+因此不會每 15 秒重抓整個 DB。
 
 ## 部署
 
-Apps Script：更新 Code.gs 並部署 v2.11.0。
-GitHub：更新 index.html、app.js、styles.css。
+Apps Script：
+- 更新 Code.gs
+- 部署 v2.11.1
+
+GitHub：
+- 更新 app.js
+- 更新 index.html（版本文字）
+- styles.css 無功能變更，可沿用，但完整包已同步
+
 config.js 不修改。
-Google Sheet 無 schema 變更，不需初始化。
+
+Google Sheet：
+- 無 schema 變更
+- 不需初始化
