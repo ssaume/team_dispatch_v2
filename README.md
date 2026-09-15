@@ -1,84 +1,10 @@
-# Team Dispatch v2.9.0
+# Team Dispatch v2.9.1
 
-本版新增公開任務儀表板的開合與兩週 Loading 熱力圖，因此版本更新第二碼。
+- 已派發未來任務：改為顯示全部 public 的 pending / accepted 未結任務，包含逾期；依需求日排序。
+- 15 天內到期標籤保留：只有 today ~ today+14 的任務顯示標籤。
+- Heatmap 部分請假：百分比照常顯示，第二行顯示 `假xh`；Loading 分母使用請假後可用工時。
+- Heatmap 國定假日：顯示 `國假` 與 holidayName。
+- Heatmap 週末：顯示 `週末`。
+- Heatmap 出差：顯示 `出差` 與 purpose，但不扣 availableHours、不改 Loading 計算。
 
-## 1. 儀表板四個既有區塊可展開／收合
-
-以下區塊改成 `<details>`：
-
-- 當日休假人員
-- 本週執行中任務
-- 當週任務中止
-- 已派發未來任務
-
-預設展開，點區塊標題即可收合／展開。
-
-手機也維持同樣操作。
-
-## 2. 未來任務區塊
-
-原：
-`未來 15 天任務`
-
-改為：
-`已派發未來任務`
-
-資料範圍仍維持原本的「今天起 15 個日曆日」，
-沒有改變任務篩選邏輯。
-
-標題下方不再顯示日期區間，只保留：
-
-`依需求日期排序`
-
-表格內容、需求日、負責人、狀態與 15 天內到期標示都維持原本方式。
-
-## 3. 團隊 Loading 熱力圖
-
-新增於儀表板最下方，可展開／收合。
-
-### 範圍
-
-- 所有 active user
-- 排除 role=admin
-- 橫軸：今天起 14 個日曆日
-- 縱軸：User
-
-### Loading 計算
-
-與既有 Team Loading 相同：
-
-`accepted TaskAllocations 工時 / 當日可用工時 × 100%`
-
-部分請假會降低當日可用工時。
-
-週末／國定假日顯示為非工作日。
-整天請假顯示「休」。
-
-### 顏色
-
-- 0%：中性灰
-- 1～40%：冷藍
-- 41～80%：冷青
-- 81～100%：暖橘
-- >100%：暖紅（超載）
-
-每格直接顯示 Loading 百分比。
-滑鼠停留可查看日期、Loading%、排程工時與可用工時。
-
-手機畫面使用橫向捲動，User 名稱欄固定於左側。
-
-## 部署
-
-Apps Script：
-- 更新 Code.gs
-- 部署 v2.9.0
-
-GitHub：
-- 更新 index.html
-- 更新 app.js
-- 更新 styles.css
-- config.js 不需修改
-
-Google Sheet：
-- 無 schema 變更
-- 不需初始化 / 修復資料表
+部署：更新 Code.gs、app.js、index.html、styles.css；config.js 不變；Google Sheet 無 schema 變更、不需初始化。

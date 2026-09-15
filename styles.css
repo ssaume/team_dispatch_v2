@@ -1136,3 +1136,10 @@ dialog.loading-dialog .commit-loading-card{
     min-width:52px;
   }
 }
+
+/* v2.9.1 heatmap annotations */
+.heat-cell{padding:4px 3px!important;line-height:1.15}
+.heat-main{display:block!important;font-weight:900}
+.heat-note{display:block;margin-top:3px;font-size:9px;line-height:1.15;font-weight:800;opacity:.86;white-space:normal}
+.heat-holiday{background:#f3ddea!important;color:#7b4165}
+.heat-weekend{background:#eceff1!important;color:#7e898f}

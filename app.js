@@ -376,7 +376,7 @@ function renderPublicDashboard(d){
   const leavePeople=d.todayLeavePeople||[];
   const week=d.currentWeekTasks||[];
   const cancelled=d.cancelledWeekTasks||[];
-  const future=d.next15DaysTasks||[];
+  const future=d.futureTasks||d.next15DaysTasks||[];
   const heatmap=d.loadingHeatmap||{dates:[],members:[]};
 
   $('#dashboardTodayLeaveCount').textContent=`${leavePeople.length} 人`;
@@ -403,9 +403,10 @@ function renderPublicDashboard(d){
 
 
 function dashboardHeatClass(day){
-  if(!day||!day.workday)return 'heat-nonwork';
-  if(Number(day.availableHours||0)<=0)return 'heat-leave';
-
+  if(!day)return 'heat-nonwork';
+  if(day.holiday)return 'heat-holiday';
+  if(day.weekend)return 'heat-weekend';
+  if(day.fullLeave||Number(day.availableHours||0)<=0)return 'heat-leave';
   const pct=Number(day.loadPct||0);
   if(pct<=0)return 'heat-zero';
   if(pct<=40)return 'heat-cool-low';
@@ -441,17 +442,31 @@ function dashboardLoadingHeatmapHtml(data){
         const hours=num(day.loadHours||0);
         const available=num(day.availableHours||0);
 
-        let text='-';
-        if(day.workday&&available<=0)text='休';
-        else if(day.workday)text=`${pct}%`;
-
-        const tip=day.workday
-          ? (available<=0
-              ? `${date} · 無可用工時`
-              : `${date} · Loading ${pct}% · ${hours}h / 可用 ${available}h`)
-          : `${date} · 非工作日`;
-
-        return `<td class="heat-cell ${cls}" title="${attr(tip)}"><span>${text}</span></td>`;
+        let main='-', sub='';
+        if(day.holiday){ main='國假'; sub=(day.holidayLabels||[]).join('、'); }
+        else if(day.weekend){ main='週末'; }
+        else if(day.fullLeave||available<=0){ main='休'; }
+        else{
+          main=`${pct}%`;
+          const notes=[];
+          if(day.partialLeave)notes.push(`假${num(day.leaveHours||0)}h`);
+          if(Array.isArray(day.tripLabels)&&day.tripLabels.length)notes.push('出差');
+          sub=notes.join(' · ');
+        }
+        const tip=[date];
+        if(day.holiday)tip.push(`國定假日：${(day.holidayLabels||[]).join('、')||'國定假日'}`);
+        else if(day.weekend)tip.push('週末');
+        else{
+          tip.push(`Loading ${pct}%`);
+          tip.push(`${hours}h / 可用 ${available}h`);
+          if(day.partialLeave)tip.push(`部分請假 ${num(day.leaveHours||0)}h`);
+          else if(day.fullLeave)tip.push('整天請假');
+          if(Array.isArray(day.tripLabels)&&day.tripLabels.length)tip.push(`出差：${day.tripLabels.join('、')}（不影響 Loading）`);
+        }
+        return `<td class="heat-cell ${cls}" title="${attr(tip.join(' · '))}">
+          <span class="heat-main">${escapeHtml(main)}</span>
+          ${sub?`<small class="heat-note">${escapeHtml(sub)}</small>`:''}
+        </td>`;
       }).join('')}
     </tr>
   `).join('');
@@ -532,7 +547,7 @@ function dashboardTaskTable(tasks,mode){
                 ${dueWarning}
               </div>
               ${grouped?`<div class="mini">合併 ${t.taskCount} 筆同名任務</div>`:''}
-              ${mode==='future'?'<div class="future-due-tag">15 天內到期</div>':''}
+              ${mode==='future'&&t.within15Days?'<div class="future-due-tag">15 天內到期</div>':''}
             </td>
             <td><span class="assignee-pill">${escapeHtml(t.assigneeName)}</span></td>
             <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
