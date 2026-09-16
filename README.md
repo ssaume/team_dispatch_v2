@@ -1,112 +1,98 @@
-# Team Dispatch v2.11.3
+# Team Dispatch v2.11.4 — revised before deployment
 
-本版是第三碼 bug fix，補齊登入中多使用者之間的畫面同步。
+此包取代先前未部署的 v2.11.4，版本號維持不變。
 
-## 同步原則
+## 1. Admin 區塊同步
 
-登入後仍維持 15 秒 lightweight polling。
-Task 關聯同步與 Team Attendance 同步分開判斷。
+Admin 的 related-task polling 現在視所有 Task 為關聯資料。
 
-### 1. 我的工作 → 團隊出勤
+其他 User 更新 Task 時：
+- Admin 正開著「系統管理 → 人員工作管理」：自動重抓 task list
+- Admin 正開著「人員工作日曆」Dialog：自動重抓該 User 工作 / Allocation / Leave / Trip
+- Admin 不在相關畫面：標記 stale，下次進入系統管理時更新
 
-下列操作會更新全體登入者的 Team sync revision：
+避免重建 Admin 表單造成正在輸入的帳號資料被清空，所以一般 Task 變更只更新 task list / user-work dialog。
 
-- createSelfTask
-- acceptTask
-- setCompleted / reopen
-- updateSelfTaskRequestDate
-- updateTaskPlannedHours
-- updateTaskSchedule
-- stopTask
-- restartTask
-- addTaskCollaborators
-- moveAllocation
-- splitAllocation
-- adminDeleteTask
+## 2. 公開儀表板改為 30 秒提示檢查
 
-若其他 User 正在「團隊出勤」：
-- 清除 teamCalendarCache
-- 強制重新呼叫 teamCalendar
-- Loading 自動更新
+Apps Script 後端仍在每次成功寫入後更新 Script Properties 的 public revision。
 
-若不在「團隊出勤」：
-- 標記 teamDataStale
-- 下次進入「團隊出勤」自動刷新
+公開儀表板：
+- 不自動重新抓完整 Dashboard
+- 每 30 秒只查一次 public revision
+- revision 改變 → 顯示「有新的資料更新」
+- User 自己按「重新整理」才讀完整 Dashboard
 
-### 2. 新派工
+目前 GitHub Pages + Apps Script 沒有 WebSocket / Server Push，
+因此後端不能主動把訊息推到瀏覽器；30 秒的輕量 revision polling 是較穩定的折衷。
 
-A createTask → B：
-- B 登入中時仍保留 v2.11.0 的新任務 Dialog
-- B 若正在「我的工作」，先 loadAll 再彈 Dialog
-- 不在我的工作則標記資料 stale；進入我的工作自動刷新
+## 3. 指派任務來源可修改需求日
 
-### 3. 請假 / 出差
+透過「指派任務」建立的 Task，requester 現在可在任務詳細資料修改需求日。
 
-createLeave / deleteLeave / createTrip / deleteTrip：
-- 會更新 Team sync revision
-- 所有登入者的團隊出勤自動 invalidation
-- 出差仍只顯示，不扣 Loading 工時
+權限：
+- requester
+- self-assigned owner
+- Admin
 
-### 4. B 接受任務
+狀態：
+- pending
+- accepted
 
-acceptTask 同時造成：
-- 全體登入者團隊出勤 Loading revision 更新
-- requester A 的 related Task 變更
+排程規則：
+- 過去 `workDate < today` 完全保留
+- 剩餘工時 = plannedHours - 已發生工時
+- 新需求日期內重新建立未來排程
+- 原本個人已調整過的未來 Allocation 作為權重
+- 新增加的可排程日期使用目前平均權重
+- 因此延長需求日會把工作帶入新增日期，而不是全部留在舊日期
+- 共同作業仍依 collaborationGroupId 同步需求日，但各人依自己的 Allocation 權重平準
 
-A 若正在「指派任務」：
-- 自動 loadAll
-- 狀態由待接受更新為已接單
+pending Task 尚未有 Allocation，只更新 requestDate。
 
-A 若不在指派任務：
-- 標記 relatedTaskDataStale
-- 下次進入指派任務自動 loadAll
+## 4. 等待視窗
 
-### 5. 其他已納入同步
+commitOverlay 原本的圓形 spinner 改為純 CSS3 幾何動畫：
+- 四個幾何方塊
+- 旋轉 + pulse
+- 不使用圖片 / SVG / JS animation
+- 支援 prefers-reduced-motion
 
-Task related：
-- reject
-- urgent
-- completed / reopen
-- visibility
-- title/content
-- requestDate
-- plannedHours
-- schedule
-- stop / restart
-- add collaborator
-- allocation move/split
-- admin task update
+## 5. 等待時間 UX 優化
 
-Team：
-- user create/update/enable/disable
-- holiday create/delete
-- leave/trip create/delete
-- 所有會影響 accepted Loading 的 Task 動作
+GitHub Pages + Apps Script 的寫入仍必須等待 server acknowledgment，
+否則前端無法知道 Google Sheet 是否真的成功寫入。
 
-## 公開儀表板
+但 v2.11.4 revised 減少「不必要的第二次等待」：
+- 第一次 login 的 loadAll 保留 loading
+- 完成寫入後的 loadAll refresh 預設 silent
+- Team 自動同步 refresh 為 silent
+- Admin 自動同步 refresh 為 silent
+- write request queue / conflict check 仍保留
 
-不自動刷新。
+真正耗時主要來自：
+1. Browser → Apps Script HTTP round trip
+2. Apps Script cold start / execution queue
+3. SpreadsheetApp 多次 read/write
+4. ScriptLock 等待
 
-公開頁每 15 秒只讀 Script Properties revision。
-若資料有變：
-- 顯示「有新的資料更新」
-- 提示使用右上角「重新整理」
-- 不自動改變目前畫面
-
-## 效能
-
-Team / Public revision 儲存在 Apps Script Script Properties，不增加 Sheet。
-輪詢沒有讀取 TaskAllocations / Leaves / Trips / Holidays 來判斷全域變更。
-
-只有：
-- related Task 真的改變 → loadAll
-- Team revision 真的改變且目前正在團隊出勤 → teamCalendar
-
-因此避免固定每 15 秒重讀完整 DB。
+後續若要再大幅提升速度，優先順序建議：
+- 一次 read DataRange 後在記憶體共用，減少同 request 重複 readObjects_
+- 批次 setValues / append，減少逐 row Spreadsheet I/O
+- CacheService 快取 Users / Holidays / public lookup
+- 將 teamCalendar 做 revision-key cache
+- 長期若需要真正 push / real-time，可改 Firebase / Supabase / Cloud Run；GitHub Pages + GAS 本身沒有 WebSocket push
 
 ## 部署
 
-Apps Script：更新 Code.gs，部署 v2.11.3。
-GitHub：更新 app.js、index.html、styles.css。
+Apps Script：
+- 更新 Code.gs
+- Deploy v2.11.4
+
+GitHub：
+- 更新 app.js
+- index.html
+- styles.css
+
 config.js 不修改。
 Google Sheet 無 schema 變更，不需初始化。

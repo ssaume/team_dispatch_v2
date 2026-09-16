@@ -1,17 +1,20 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.3';
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.4';
 let assignmentPollTimer=null;
 let assignmentPollCursor='';
 let assignmentPollBusy=false;
 let relatedTaskDataStale=false;
 let teamDataStale=false;
 let teamSyncRevision='';
+let teamSyncRefreshBusy=false;
+let adminDataStale=false;
+let hasLoadedMainData=false;
 let dashboardSyncTimer=null;
 let dashboardPublicRevision='';
 let dashboardSyncBusy=false;
 const ASSIGNMENT_POLL_INTERVAL_MS=15000;
-const DASHBOARD_SYNC_INTERVAL_MS=15000;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
+const DASHBOARD_SYNC_INTERVAL_MS=30000;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
 function startOfWeek(d){const x=new Date(d),day=x.getDay(),diff=day===0?-6:1-day;x.setDate(x.getDate()+diff);x.setHours(0,0,0,0);return x}function isoDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}function dateOnly(s){return s?new Date(`${String(s).slice(0,10)}T00:00:00`):null}function fmtDate(s){if(!s)return'-';const d=dateOnly(s);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}function fmtDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?String(s):d.toLocaleString('zh-TW',{hour12:false})}function fmtLocalDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toLocaleString('zh-TW',{hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function isWorkdayDate(d){return ![0,6].includes(new Date(d).getDay())}
 function leaveRecordsOnDate(d){
@@ -59,7 +62,7 @@ function setToken(v){
 }
 
 function syncVersionDisplay(){
-  const version=String(backendVersion||'2.11.3').replace(/^v/,'');
+  const version=String(backendVersion||'2.11.4').replace(/^v/,'');
   $$('.app-version').forEach(el=>{
     el.textContent=`v${version}`;
   });
@@ -219,7 +222,7 @@ window.addEventListener('message',ev=>{
 
   m.ok?p.resolve(m.result):p.reject(new Error(m.error||'操作失敗'));
 });
-function rpcDirect(action,payload={}){
+function rpcDirect(action,payload={},options={}){
   if(!cfg.APPS_SCRIPT_URL||cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){
     return Promise.reject(new Error('尚未設定 Apps Script URL'));
   }
@@ -227,7 +230,7 @@ function rpcDirect(action,payload={}){
   const tokenSnapshot=token();
   const authenticated=!!tokenSnapshot&&!['ping','login','publicDashboard','publicSyncState'].includes(action);
 
-  const hasDataLoading=WRITE_ACTIONS.has(action)||READ_ACTIONS.has(action);
+  const hasDataLoading=!options.silent&&(WRITE_ACTIONS.has(action)||READ_ACTIONS.has(action));
   if(hasDataLoading)beginDataLoading(action);
 
   return new Promise((resolve,reject)=>{
@@ -292,12 +295,12 @@ function rpcDirect(action,payload={}){
   });
 }
 
-function rpc(action,payload={}){
+function rpc(action,payload={},options={}){
   if(!WRITE_ACTIONS.has(action)){
-    return rpcDirect(action,payload);
+    return rpcDirect(action,payload,options);
   }
 
-  const run=()=>rpcDirect(action,payload);
+  const run=()=>rpcDirect(action,payload,options);
   const queued=writeRpcQueue.then(run,run);
   writeRpcQueue=queued.catch(()=>{});
   return queued;
@@ -314,6 +317,8 @@ function stopAssignmentWatcher(){
   relatedTaskDataStale=false;
   teamDataStale=false;
   teamSyncRevision='';
+  teamSyncRefreshBusy=false;
+  adminDataStale=false;
 }
 
 async function startAssignmentWatcher(){
@@ -375,6 +380,54 @@ function showAssignmentNotification(tasks){
   }
 }
 
+async function refreshTeamCalendarFromSync(nextRevision){
+  if(teamSyncRefreshBusy)return;
+  teamSyncRefreshBusy=true;
+  try{
+    teamCalendarCache.clear();
+    await renderTeamCalendar(true,true);
+    if(nextRevision)teamSyncRevision=String(nextRevision);
+    teamDataStale=false;
+  }finally{
+    teamSyncRefreshBusy=false;
+  }
+}
+
+
+async function refreshAdminSurfaceFromSync(){
+  if(me?.role!=='admin')return;
+
+  const adminVisible=!!$('#adminView')&&!$('#adminView').classList.contains('hidden');
+  const userWorkOpen=!!$('#adminUserWorkDialog')?.open;
+
+  if(!adminVisible&&!userWorkOpen){
+    adminDataStale=true;
+    return;
+  }
+
+  try{
+    if(userWorkOpen&&adminUserWorkContext?.user?.id){
+      await refreshAdminUserWork(
+        adminUserWorkContext.user.id,
+        !!$('#adminUserTaskDialog')?.open,
+        true
+      );
+    }
+
+    if(adminVisible){
+      // Only refresh the task list for ordinary task changes. Avoid
+      // rebuilding account forms while an Admin may be typing.
+      adminTasksLoaded=false;
+      await loadAdminTasks(true);
+    }
+
+    adminDataStale=false;
+  }catch(err){
+    adminDataStale=true;
+    console.warn('Admin sync refresh failed:',err);
+  }
+}
+
 async function pollAssignedTaskNotifications(){
   if(assignmentPollBusy||!me||!token()||!assignmentPollCursor)return;
   if(document.hidden)return;
@@ -393,7 +446,18 @@ async function pollAssignedTaskNotifications(){
       ? d.relatedChanges
       : newAssignments;
 
-    const nextTeamRevision=String(d?.syncRevisions?.team||'');
+    let nextTeamRevision=String(d?.syncRevisions?.team||'');
+    const onTeamNow=!!$('#teamView')&&!$('#teamView').classList.contains('hidden');
+
+    if(onTeamNow){
+      try{
+        const syncState=await rpc('teamSyncState');
+        if(syncState?.team)nextTeamRevision=String(syncState.team);
+      }catch(err){
+        console.warn('Team sync state check failed:',err);
+      }
+    }
+
     const teamChanged=!!(
       nextTeamRevision &&
       teamSyncRevision &&
@@ -401,7 +465,6 @@ async function pollAssignedTaskNotifications(){
     );
 
     assignmentPollCursor=nextCursor;
-    if(nextTeamRevision)teamSyncRevision=nextTeamRevision;
 
     // My Work + Assignment status synchronization.
     if(relatedChanges.length){
@@ -420,16 +483,19 @@ async function pollAssignedTaskNotifications(){
     // operation changes Loading, leave, trip, holiday or membership must
     // invalidate every logged-in user's cached Team Calendar.
     if(teamChanged){
-      teamCalendarCache.clear();
-
       const onTeam=!!$('#teamView')&&!$('#teamView').classList.contains('hidden');
-
       if(onTeam){
-        await renderTeamCalendar(true);
-        teamDataStale=false;
+        await refreshTeamCalendarFromSync(nextTeamRevision);
       }else{
         teamDataStale=true;
+        teamSyncRevision=nextTeamRevision;
       }
+    }else if(nextTeamRevision && !teamSyncRevision){
+      teamSyncRevision=nextTeamRevision;
+    }
+
+    if(me?.role==='admin'&&(relatedChanges.length||teamChanged)){
+      await refreshAdminSurfaceFromSync();
     }
 
     if(newAssignments.length){
@@ -464,7 +530,7 @@ async function connectBackend(){
 
   try{
     const pingResult=await rpc('ping');
-    backendVersion=String(pingResult?.version||backendVersion||'2.11.3').replace(/^v/,'');
+    backendVersion=String(pingResult?.version||backendVersion||'2.11.4').replace(/^v/,'');
     backendReady=true;
     syncVersionDisplay();
     if($('#bridgeState')){
@@ -895,12 +961,12 @@ function switchView(name,btn){
     $('#teamView').classList.remove('hidden');
 
     if(teamDataStale){
-      teamCalendarCache.clear();
-      teamDataStale=false;
-      renderTeamCalendar(true).catch(err=>{
-        teamDataStale=true;
-        console.warn('Team Calendar auto refresh failed:',err);
-      });
+      rpc('teamSyncState')
+        .then(state=>refreshTeamCalendarFromSync(state?.team||teamSyncRevision))
+        .catch(err=>{
+          teamDataStale=true;
+          console.warn('Team Calendar auto refresh failed:',err);
+        });
     }else{
       renderTeamCalendar();
     }
@@ -908,15 +974,27 @@ function switchView(name,btn){
 
   if(name==='admin'){
     $('#adminView').classList.remove('hidden');
-    renderAdmin();
+
+    if(adminDataStale){
+      adminDataStale=false;
+      loadAll({silent:true})
+        .then(()=>renderAdmin())
+        .catch(err=>{
+          adminDataStale=true;
+          console.warn('Admin auto refresh failed:',err);
+        });
+    }else{
+      renderAdmin();
+    }
   }
 }
 
-async function loadAll(){
+async function loadAll(options={}){
   const expectedUserId=me?.id?String(me.id):'';
 
   try{
-    const d=await rpc('loadAll');
+    const silent=options.silent===true||hasLoadedMainData;
+    const d=await rpc('loadAll',{}, {silent});
 
     // Defense in depth: even if a stale response somehow gets through,
     // never replace the current page with another user's dataset.
@@ -937,6 +1015,7 @@ async function loadAll(){
     adminTasksLoaded=false;
     adminTasks=[];
     teamCalendarCache.clear();
+    hasLoadedMainData=true;
 
     renderMy();
     renderRequest();
@@ -1336,6 +1415,13 @@ function openDetail(id){
   const groupedAllocations=groupedTaskAllocations(allocations);
   const scheduledHours=groupedAllocations.reduce((s,a)=>s+Number(a.hours||0),0);
   const canEditSchedule=isMyTaskParticipant(t)&&t.status==='accepted';
+  const canEditRequestDate=
+    ['pending','accepted'].includes(t.status)&&
+    (
+      String(t.requesterId)===String(me.id)||
+      (t.selfAssigned&&String(t.assigneeId)===String(me.id))||
+      me.role==='admin'
+    );
 
   const scheduleCandidates=canEditSchedule
     ? taskScheduleValidDates(t,groupedAllocations)
@@ -1473,12 +1559,12 @@ function openDetail(id){
         <div class="task-setting-item">
           <div class="task-setting-label">需求日期</div>
           <div>
-            ${t.selfAssigned&&t.status==='accepted'&&String(t.assigneeId)===String(me.id)
+            ${canEditRequestDate
               ? `<div class="request-date-edit">
                   <input id="taskRequestDateInput" type="date" value="${attr(t.requestDate)}">
                   <button type="button" id="saveTaskRequestDate" class="secondary">更新</button>
                 </div>
-                <div class="mini">日期往前縮時，超出的排程會收回有效期間內。</div>`
+                <div class="mini">已發生工時保留；剩餘工時依個人既有排程權重，在新的可排程期間重新平準。</div>`
               : `<strong>${fmtDate(t.requestDate)}</strong>`}
           </div>
         </div>
@@ -2150,7 +2236,7 @@ function scheduleAvailabilityCheck(form){clearTimeout(availabilityTimer);availab
 
 function availabilityHtml(d){const lines=[`預估期間最高 Loading：<strong>${Math.round(d.peakLoadPct)}%</strong>`];if(d.highLoadDates?.length)lines.push(`Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' ('+Math.round(x.loadPct)+'%)').join('、')}`);if(d.holidays?.length)lines.push(`國定假日：${d.holidays.map(x=>escapeHtml(x.holidayName)+' '+fmtDate(x.holidayDate)).join('；')}`);if(d.leaves?.length)lines.push(`請假：${d.leaves.map(x=>escapeHtml(x.leaveType)+' '+fmtLocalDateTime(x.startDateTime)+'～'+fmtLocalDateTime(x.endDateTime)).join('；')}`);if(d.trips?.length)lines.push(`出差：${d.trips.map(x=>escapeHtml(x.purpose)+' '+fmtDate(x.startDate)+'～'+fmtDate(x.endDate)).join('；')}`);if(!d.hasWarning)lines.push('此期間目前沒有 Loading > 80%、國定假日、請假或出差衝突。');return lines.map(x=>`<div class="hint-line">${x}</div>`).join('')}function availabilityConfirmText(d){const parts=['被派工者的行事曆有以下提示：'];if(d.highLoadDates?.length)parts.push(`• Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' '+Math.round(x.loadPct)+'%').join('、')}`);if(d.holidays?.length)parts.push(`• 有 ${d.holidays.length} 個國定假日`);if(d.leaves?.length)parts.push(`• 有 ${d.leaves.length} 筆請假`);if(d.trips?.length)parts.push(`• 有 ${d.trips.length} 筆出差`);parts.push('仍要送出派工嗎？');return parts.join('\n')}
 function renderSchedule(){const el=$('#scheduleView');if(!el)return;const leaveRows=myLeaves.map(x=>`<div class="record-card leave"><div><div class="record-title">${escapeHtml(x.leaveType)}</div><div>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div><div class="mini">只計入週一至週五工作日</div></div><button class="ghost" data-del-leave="${x.id}">刪除</button></div>`).join(''),tripRows=myTrips.map(x=>`<div class="record-card trip"><div><div class="record-title">${escapeHtml(x.purpose)}</div><div>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</div><div class="mini">以天為顆粒度，只計入週一至週五</div></div><button class="ghost" data-del-trip="${x.id}">刪除</button></div>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請假／出差設定</h1><div class="muted">請假可精確到分鐘；出差以天為單位</div></div></div><div class="schedule-grid"><form id="leaveForm" class="form-card"><h3>新增請假</h3><label>假別<input name="leaveType" list="leaveTypes" placeholder="例如：特休" required><datalist id="leaveTypes"><option value="特休"><option value="事假"><option value="病假"><option value="公假"><option value="其他"></datalist></label><label>開始時間<input type="datetime-local" name="startDateTime" step="60" required></label><label>結束時間<input type="datetime-local" name="endDateTime" step="60" required></label><button class="primary">新增請假</button></form><form id="tripForm" class="form-card"><h3>新增出差</h3><label>目的<textarea name="purpose" rows="3" placeholder="例如：台中工廠 UAT Workshop" required></textarea></label><label>開始日期<input type="date" name="startDate" required></label><label>結束日期<input type="date" name="endDate" required></label><button class="primary">新增出差</button></form></div><div class="schedule-grid"><div class="panel panel-pad"><h3>我的請假</h3><div class="record-list">${leaveRows||'<div class="empty">尚無請假紀錄</div>'}</div></div><div class="panel panel-pad"><h3>我的出差</h3><div class="record-list">${tripRows||'<div class="empty">尚無出差紀錄</div>'}</div></div></div>`;$('#leaveForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createLeave',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$('#tripForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createTrip',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$$('[data-del-leave]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此請假紀錄？'))return;try{await rpc('deleteLeave',{id:b.dataset.delLeave});await loadAll();renderSchedule()}catch(e){alert(e.message)}});$$('[data-del-trip]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此出差紀錄？'))return;try{await rpc('deleteTrip',{id:b.dataset.delTrip});await loadAll();renderSchedule()}catch(e){alert(e.message)}})}
-async function renderTeamCalendar(forceRefresh=false){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);const startDate=isoDate(teamStart),endDate=isoDate(end),cacheKey=`${startDate}|${endDate}`;try{let d=forceRefresh?null:teamCalendarCache.get(cacheKey);if(!d){d=await rpc('teamCalendar',{startDate,endDate});teamCalendarCache.set(cacheKey,d)}drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
+async function renderTeamCalendar(forceRefresh=false,silent=false){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div><div class="mini">登入中會自動同步其他使用者造成的 Loading 變更</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);const startDate=isoDate(teamStart),endDate=isoDate(end),cacheKey=`${startDate}|${endDate}`;try{let d=forceRefresh?null:teamCalendarCache.get(cacheKey);if(!d){d=await rpc('teamCalendar',{startDate,endDate},{silent});teamCalendarCache.set(cacheKey,d)}drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
 function drawTeamGantt(data){
   const wrap=$('#teamGantt');
   if(!wrap)return;
@@ -2275,10 +2361,10 @@ async function openAdminUserWork(userId){
   $('#adminUserWorkDialog').showModal();
 }
 
-async function refreshAdminUserWork(userId,keepTaskDialog=false){
+async function refreshAdminUserWork(userId,keepTaskDialog=false,silent=false){
   if(me?.role!=='admin')return;
 
-  const d=await rpc('adminUserWork',{userId});
+  const d=await rpc('adminUserWork',{userId},{silent});
   adminUserWorkContext=d;
 
   $('#adminUserWorkTitle').textContent=`${d.user.displayName}｜工作日曆`;
@@ -2678,7 +2764,7 @@ function openAdminUserTaskDetail(taskId){
 
       <div class="k">需求日期</div>
       <div>
-        ${t.selfAssigned&&t.status==='accepted'
+        ${['pending','accepted'].includes(t.status)
           ? `<input id="adminWorkRequestDate" type="date" value="${attr(t.requestDate)}">`
           : fmtDate(t.requestDate)}
       </div>
@@ -2698,7 +2784,7 @@ function openAdminUserTaskDetail(taskId){
       <div class="row-actions admin-work-actions">
         ${t.status!=='cancelled'?'<button type="button" class="secondary" id="adminSaveTaskContent">更新內容</button>':''}
         ${t.status!=='cancelled'?'<button type="button" class="secondary" id="adminSaveTaskHours">更新總工時</button>':''}
-        ${t.selfAssigned&&t.status==='accepted'?'<button type="button" class="secondary" id="adminSaveRequestDate">更新需求日期</button>':''}
+        ${['pending','accepted'].includes(t.status)?'<button type="button" class="secondary" id="adminSaveRequestDate">更新需求日期</button>':''}
         ${t.status!=='cancelled'?'<button type="button" class="secondary" id="adminSaveVisibility">更新公開屬性</button>':''}
         ${['accepted','completed'].includes(t.status)?`<button type="button" class="ghost" id="adminToggleUrgent">${t.urgent?'取消緊急':'標示緊急'}</button>`:''}
         ${['accepted','completed'].includes(t.status)?`<button type="button" class="secondary" id="adminToggleCompleted">${t.status==='completed'?'改回未完成':'完成'}</button>`:''}
@@ -2767,20 +2853,20 @@ function openAdminUserTaskDetail(taskId){
 
   $('#adminSaveTaskHours')?.addEventListener('click',async()=>{
     try{
-      await rpc('updateTaskPlannedHours',{
+      await rpc('updateTaskPlannedHours',taskVersionPayload(t,{
         taskId:t.id,
         plannedHours:$('#adminWorkPlannedHours').value
-      });
+      }));
       await refresh();
     }catch(err){alert(err.message)}
   });
 
   $('#adminSaveRequestDate')?.addEventListener('click',async()=>{
     try{
-      await rpc('updateSelfTaskRequestDate',{
+      await rpc('updateSelfTaskRequestDate',taskVersionPayload(t,{
         taskId:t.id,
         requestDate:$('#adminWorkRequestDate').value
-      });
+      }));
       await refresh();
     }catch(err){alert(err.message)}
   });
@@ -2961,10 +3047,10 @@ async function adminPromptSplitAllocation(allocationId){
   }
 }
 
-async function loadAdminTasks(){
+async function loadAdminTasks(silent=false){
   if(me?.role!=='admin')return;
   try{
-    if(!adminTasksLoaded){const d=await rpc('adminListTasks');adminTasks=d.tasks||[];adminTasksLoaded=true}
+    if(!adminTasksLoaded){const d=await rpc('adminListTasks',{}, {silent});adminTasks=d.tasks||[];adminTasksLoaded=true}
     renderAdminTaskList();
   }catch(e){const box=$('#adminTaskList');if(box)box.innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}
 }

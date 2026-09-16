@@ -12,7 +12,9 @@
   <dialog id="commitOverlay" class="loading-dialog" role="status" aria-live="polite" aria-busy="true">
     <div class="loading-dialog-center">
       <div class="commit-loading-card">
-        <div class="loading-spinner" aria-hidden="true"></div>
+        <div class="td-geometry-loader" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </div>
         <div>
           <strong id="commitLoadingTitle">資料讀取中</strong>
           <div id="commitLoadingText">正在讀取資料，請稍候…</div>
@@ -37,7 +39,7 @@
           </button>
           <div id="loginError" class="error"></div>
         </form>
-        <div class="app-version">v2.11.3</div>
+        <div class="app-version">v2.11.4</div>
       </section>
     </main>
   </template>
@@ -212,7 +214,7 @@
             <div id="whoami"></div>
             <button id="logoutBtn" class="ghost">登出</button>
           </div>
-          <div class="app-version sidebar-version">v2.11.3</div>
+          <div class="app-version sidebar-version">v2.11.4</div>
         </div>
       </aside>
 

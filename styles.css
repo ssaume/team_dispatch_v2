@@ -1240,3 +1240,38 @@ dialog.loading-dialog .commit-loading-card{
     gap:4px;
   }
 }
+
+/* v2.11.4 revised: CSS3 geometric commit loader */
+.td-geometry-loader{
+  position:relative;
+  width:42px;
+  height:42px;
+  flex:0 0 42px;
+  transform:rotate(45deg);
+  animation:td-geometry-rotate 1.8s cubic-bezier(.68,-.35,.27,1.35) infinite;
+}
+.td-geometry-loader i{
+  position:absolute;
+  width:17px;
+  height:17px;
+  border-radius:4px;
+  background:var(--primary-dark);
+  animation:td-geometry-pulse 1.2s ease-in-out infinite;
+}
+.td-geometry-loader i:nth-child(1){left:2px;top:2px;animation-delay:0s}
+.td-geometry-loader i:nth-child(2){right:2px;top:2px;animation-delay:.15s}
+.td-geometry-loader i:nth-child(3){right:2px;bottom:2px;animation-delay:.30s}
+.td-geometry-loader i:nth-child(4){left:2px;bottom:2px;animation-delay:.45s}
+@keyframes td-geometry-rotate{
+  0%,15%{transform:rotate(45deg)}
+  50%,65%{transform:rotate(135deg)}
+  100%{transform:rotate(225deg)}
+}
+@keyframes td-geometry-pulse{
+  0%,100%{transform:scale(.72);opacity:.48}
+  50%{transform:scale(1);opacity:1}
+}
+@media(prefers-reduced-motion:reduce){
+  .td-geometry-loader{animation:none}
+  .td-geometry-loader i{animation:none;opacity:.8}
+}
