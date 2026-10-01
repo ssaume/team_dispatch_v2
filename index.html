@@ -39,7 +39,7 @@
           </button>
           <div id="loginError" class="error"></div>
         </form>
-        <div class="app-version">v2.11.4</div>
+        <div class="app-version">v2.11.5</div>
       </section>
     </main>
   </template>
@@ -212,9 +212,12 @@
         <div class="sidebar-bottom">
           <div class="user-box">
             <div id="whoami"></div>
-            <button id="logoutBtn" class="ghost">登出</button>
+            <div class="user-box-actions">
+              <button id="changePasswordBtn" class="ghost" type="button">修改密碼</button>
+              <button id="logoutBtn" class="ghost" type="button">登出</button>
+            </div>
           </div>
-          <div class="app-version sidebar-version">v2.11.4</div>
+          <div class="app-version sidebar-version">v2.11.5</div>
         </div>
       </aside>
 
@@ -227,6 +230,37 @@
       </main>
     </div>
 
+
+
+
+    <dialog id="changePasswordDialog">
+      <form id="changePasswordForm" class="dialog-card">
+        <div class="dialog-header">
+          <div>
+            <h3>修改我的密碼</h3>
+            <div class="mini">更新後其他裝置的登入 Session 會失效。</div>
+          </div>
+          <button type="button" id="changePasswordClose" class="icon-btn">×</button>
+        </div>
+
+        <label>目前密碼
+          <input type="password" name="currentPassword" autocomplete="current-password" required>
+        </label>
+
+        <label>新密碼
+          <input type="password" name="newPassword" autocomplete="new-password" minlength="8" required>
+        </label>
+
+        <label>確認新密碼
+          <input type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required>
+        </label>
+
+        <div class="dialog-actions">
+          <button type="button" id="changePasswordCancel" class="ghost">取消</button>
+          <button type="submit" class="primary">更新密碼</button>
+        </div>
+      </form>
+    </dialog>
 
 
     <dialog id="adminUserWorkDialog" class="wide-dialog">

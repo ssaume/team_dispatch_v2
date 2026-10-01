@@ -1275,3 +1275,36 @@ dialog.loading-dialog .commit-loading-card{
   .td-geometry-loader{animation:none}
   .td-geometry-loader i{animation:none;opacity:.8}
 }
+
+/* v2.11.5 My Work filters + account actions */
+.stat-filter{
+  appearance:none;
+  width:100%;
+  border:1px solid transparent;
+  text-align:left;
+  cursor:pointer;
+  font:inherit;
+  color:inherit;
+}
+.stat-filter:hover{
+  border-color:#bddce9;
+}
+.stat-filter.active{
+  border-color:#78b7d3;
+  box-shadow:0 0 0 2px rgba(71,151,188,.10);
+  background:#f5fbfe;
+}
+.my-list-filter-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin:0 0 8px;
+  padding:0 3px;
+}
+.user-box-actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}

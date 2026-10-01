@@ -1,6 +1,6 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.4';
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.5';
 let assignmentPollTimer=null;
 let assignmentPollCursor='';
 let assignmentPollBusy=false;
@@ -14,7 +14,7 @@ let dashboardSyncTimer=null;
 let dashboardPublicRevision='';
 let dashboardSyncBusy=false;
 const ASSIGNMENT_POLL_INTERVAL_MS=15000;
-const DASHBOARD_SYNC_INTERVAL_MS=30000;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
+const DASHBOARD_SYNC_INTERVAL_MS=30000;let me=null,users=[],adminUsers=[],taskTitles=[],incoming=[],outgoing=[],myAllocations=[],myLeaves=[],myTrips=[],holidays=[],adminTasks=[];let adminTasksLoaded=false,adminUserWorkContext=null,adminUserWorkWeekStart=null;const teamCalendarCache=new Map();let myMode='list';let myListFilter='accepted';let currentWeekStart=startOfWeek(new Date());let teamStart=startOfWeek(new Date());let availabilityTimer=null;let lastAvailability=null;
 function startOfWeek(d){const x=new Date(d),day=x.getDay(),diff=day===0?-6:1-day;x.setDate(x.getDate()+diff);x.setHours(0,0,0,0);return x}function isoDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}function dateOnly(s){return s?new Date(`${String(s).slice(0,10)}T00:00:00`):null}function fmtDate(s){if(!s)return'-';const d=dateOnly(s);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`}function fmtDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?String(s):d.toLocaleString('zh-TW',{hour12:false})}function fmtLocalDateTime(s){if(!s)return'-';const d=new Date(s);return Number.isNaN(d.getTime())?s:d.toLocaleString('zh-TW',{hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function isWorkdayDate(d){return ![0,6].includes(new Date(d).getDay())}
 function leaveRecordsOnDate(d){
@@ -62,7 +62,7 @@ function setToken(v){
 }
 
 function syncVersionDisplay(){
-  const version=String(backendVersion||'2.11.4').replace(/^v/,'');
+  const version=String(backendVersion||'2.11.5').replace(/^v/,'');
   $$('.app-version').forEach(el=>{
     el.textContent=`v${version}`;
   });
@@ -74,6 +74,7 @@ const WRITE_ACTIONS=new Set([
   'setUrgent','setCompleted','setTaskVisibility','updateTaskDetails','updateSelfTaskRequestDate','updateTaskPlannedHours','updateTaskSchedule','stopTask','restartTask','addTaskCollaborators',
   'moveAllocation','splitAllocation',
   'createLeave','deleteLeave','createTrip','deleteTrip',
+  'changeOwnPassword',
   'adminCreateUser','adminUpdateUser','adminUpdateTaskDetails','adminDeleteTask',
   'adminCreateHoliday','adminDeleteHoliday'
 ]);
@@ -117,6 +118,7 @@ const DATA_LOADING_MESSAGES={
   deleteLeave:'正在刪除請假…',
   createTrip:'正在新增出差…',
   deleteTrip:'正在刪除出差…',
+  changeOwnPassword:'正在更新密碼…',
   adminCreateUser:'正在建立帳號…',
   adminUpdateUser:'正在更新帳號…',
   adminUpdateTaskDetails:'正在更新人員工作內容…',
@@ -263,7 +265,19 @@ function rpcDirect(action,payload={},options={}){
     form.appendChild(data);
     document.body.appendChild(form);
 
-    const timeoutMs=Math.max(Number(cfg.REQUEST_TIMEOUT_MS||0),WRITE_ACTIONS.has(action)?45000:30000);
+    const heavyWriteActions=new Set([
+      'updateSelfTaskRequestDate',
+      'updateTaskPlannedHours',
+      'updateTaskSchedule',
+      'adminCreateHoliday',
+      'createLeave'
+    ]);
+    const minimumTimeout=heavyWriteActions.has(action)
+      ? 90000
+      : WRITE_ACTIONS.has(action)
+        ? 45000
+        : 30000;
+    const timeoutMs=Math.max(Number(cfg.REQUEST_TIMEOUT_MS||0),minimumTimeout);
     const slowTimer=setTimeout(()=>{
       const text=$('#commitLoadingText');
       if(text&&pendingRpc.has(id)){
@@ -512,12 +526,10 @@ async function pollAssignedTaskNotifications(){
 
 
 async function connectBackend(){
-  // v1.4.1: opening / refreshing the site always returns to the login screen.
-  // Do not silently restore a previous local session.
-  // Each page refresh starts logged out in this tab, preserving the existing
-  // explicit-login behavior. Also remove any legacy shared localStorage token.
+  // v2.11.5: sessionStorage survives F5 in the same browser tab.
+  // Keep the existing tab-scoped token and restore the authenticated UI
+  // when the session is still valid.
   localStorage.removeItem('teamDispatchToken');
-  setToken('');
   showLogin();
 
   const st=$('#bridgeState');
@@ -530,9 +542,28 @@ async function connectBackend(){
 
   try{
     const pingResult=await rpc('ping');
-    backendVersion=String(pingResult?.version||backendVersion||'2.11.4').replace(/^v/,'');
+    backendVersion=String(pingResult?.version||backendVersion||'2.11.5').replace(/^v/,'');
     backendReady=true;
     syncVersionDisplay();
+
+    const existingToken=token();
+
+    if(existingToken){
+      try{
+        const session=await rpc('me');
+        me=session.user;
+        showMain();
+        await loadAll();
+        await startAssignmentWatcher();
+        return;
+      }catch(err){
+        // Token expired / invalid: only then return to login.
+        setToken('');
+        me=null;
+        showLogin();
+      }
+    }
+
     if($('#bridgeState')){
       $('#bridgeState').textContent='Google Drive 已連線';
       $('#bridgeState').className='bridge-state ok';
@@ -915,7 +946,37 @@ function dashboardTaskTable(tasks,mode){
   </div>`;
 }
 
-function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));syncVersionDisplay();$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }stopAssignmentWatcher();setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#stopTaskClose').onclick=$('#stopTaskCancel').onclick=()=>$('#stopTaskDialog').close();$('#stopTaskForm').addEventListener('submit',handleStopTask);$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint);
+
+async function handleChangePassword(e){
+  e.preventDefault();
+  const form=e.currentTarget;
+
+  const currentPassword=form.elements.currentPassword.value;
+  const newPassword=form.elements.newPassword.value;
+  const confirmPassword=form.elements.confirmPassword.value;
+
+  if(newPassword!==confirmPassword){
+    alert('新密碼與確認密碼不一致');
+    return;
+  }
+
+  try{
+    await rpc('changeOwnPassword',{
+      currentPassword,
+      newPassword,
+      confirmPassword
+    });
+
+    $('#changePasswordDialog').close();
+    form.reset();
+    alert('密碼已更新。其他裝置的舊登入 Session 將失效。');
+  }catch(err){
+    alert(err.message);
+  }
+}
+
+
+function showMain(){app.innerHTML='';app.append($('#mainTpl').content.cloneNode(true));syncVersionDisplay();$('#whoami').innerHTML=`<strong>${escapeHtml(me.displayName)}</strong><div class="muted">${escapeHtml(me.username)} · ${me.role}</div>`;$('#changePasswordBtn').addEventListener('click',()=>{$('#changePasswordForm').reset();$('#changePasswordDialog').showModal()});$('#changePasswordClose').onclick=$('#changePasswordCancel').onclick=()=>$('#changePasswordDialog').close();$('#changePasswordForm').addEventListener('submit',handleChangePassword);$('#adminNav').classList.toggle('hidden',me.role!=='admin');$$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view,b)));$('#logoutBtn').addEventListener('click',async()=>{try{await rpc('logout')}catch(e){if(!isStaleSessionError(e)){} }stopAssignmentWatcher();setToken('');me=null;showLogin()});$('#rejectCancel').addEventListener('click',()=>$('#rejectDialog').close());$('#stopTaskClose').onclick=$('#stopTaskCancel').onclick=()=>$('#stopTaskDialog').close();$('#stopTaskForm').addEventListener('submit',handleStopTask);$('#rejectForm').addEventListener('submit',handleReject);$('#selfTaskClose').onclick=$('#selfTaskCancel').onclick=()=>$('#selfTaskDialog').close();$('#selfTaskForm').addEventListener('submit',handleSelfTask);$('#selfTaskPeriodic').addEventListener('change',toggleSelfPeriodicFields);$('#selfTaskForm [name="requestDate"]').addEventListener('change',toggleSelfPeriodicFields);$('#periodEndMode').addEventListener('change',togglePeriodEndMode);$('#selfTaskCollaborative').addEventListener('change',toggleSelfCollaborativeFields);$('#adminTaskClose').onclick=$('#adminTaskCancel').onclick=()=>$('#adminTaskDialog').close();$('#adminTaskForm').addEventListener('submit',handleAdminTaskSave);$('#adminUserWorkClose').onclick=()=>$('#adminUserWorkDialog').close();$('#adminUserTaskClose').onclick=()=>$('#adminUserTaskDialog').close();$('#moveAllocationClose').onclick=$('#moveAllocationCancel').onclick=()=>$('#moveAllocationDialog').close();$('#moveAllocationForm').addEventListener('submit',handleMoveAllocation);$('#splitAllocationClose').onclick=$('#splitAllocationCancel').onclick=()=>$('#splitAllocationDialog').close();$('#splitAllocationForm').addEventListener('submit',handleSplitAllocation);$('#splitAllocationForm [name="movePercent"]').addEventListener('input',updateSplitPreview);$('#splitAllocationForm [name="targetDate"]').addEventListener('change',updateSplitTargetHint);
 $('#assignmentNotificationClose')?.addEventListener('click',()=>$('#assignmentNotificationDialog').close());
 $('#assignmentNotificationGoMy')?.addEventListener('click',()=>{
   $('#assignmentNotificationDialog').close();
@@ -1050,7 +1111,147 @@ function isMyTaskParticipant(t){
     : String(t.assigneeId)===String(me.id);
 }
 
-function renderMy(){const el=$('#myView');if(!el)return;const pending=incoming.filter(x=>x.status==='pending').length,accepted=incoming.filter(x=>x.status==='accepted').length,completed=incoming.filter(x=>x.status==='completed').length,overdue=incoming.filter(x=>!['completed','rejected'].includes(x.status)&&daysToDue(x)<0).length;el.innerHTML=`<div class="page-header"><div><h1>我的工作</h1><div class="muted">查看待接受、已接單與已完成工作</div></div><div class="toolbar"><button class="primary" id="newSelfTask">＋新增自己的工作</button><div class="segmented"><button data-mode="list" class="${myMode==='list'?'active':''}">清單</button><button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button></div></div></div><div class="cards"><div class="stat"><div class="muted">待接受</div><div class="n">${pending}</div></div><div class="stat"><div class="muted">已接單</div><div class="n">${accepted}</div></div><div class="stat"><div class="muted">已完成</div><div class="n">${completed}</div></div><div class="stat"><div class="muted">已逾期</div><div class="n">${overdue}</div></div></div><div id="myBody"></div>`;$('#newSelfTask').onclick=()=>{$('#selfTaskForm').reset();$('#selfTaskForm [name="plannedHours"]').value='8';$('#selfTaskForm [name="periodCount"]').value='4';$('#selfTaskPeriodicFields').classList.add('hidden');$('#periodCountField').classList.remove('hidden');$('#periodEndDateField').classList.add('hidden');$('#selfTaskCollaborativeFields').classList.add('hidden');$('#selfTaskCollaborators').innerHTML=users.filter(u=>String(u.id)!==String(me.id)&&u.active).map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`).join('');refreshTaskTitleOptions();$('#selfTaskDialog').showModal()};$$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{myMode=b.dataset.mode;renderMy()}));myMode==='list'?renderMyList():renderCalendar()}
+function myFilterMatch(t,filter){
+  if(filter==='pending')return t.status==='pending';
+  if(filter==='completed')return t.status==='completed';
+  if(filter==='overdue'){
+    return ['pending','accepted'].includes(t.status)&&daysToDue(t)<0;
+  }
+  return t.status==='accepted';
+}
+
+function myFilterTitle(){
+  return ({
+    pending:'待接受',
+    accepted:'已接單未完工',
+    completed:'已完成',
+    overdue:'已逾期'
+  })[myListFilter]||'已接單未完工';
+}
+
+function renderMy(){
+  const el=$('#myView');
+  if(!el)return;
+
+  const pending=incoming.filter(x=>x.status==='pending').length;
+  const accepted=incoming.filter(x=>x.status==='accepted').length;
+  const completed=incoming.filter(x=>x.status==='completed').length;
+  const overdue=incoming.filter(x=>['pending','accepted'].includes(x.status)&&daysToDue(x)<0).length;
+
+  const stat=(filter,label,count)=>`
+    <button type="button"
+      class="stat stat-filter ${myListFilter===filter?'active':''}"
+      data-my-filter="${filter}">
+      <div class="muted">${label}</div>
+      <div class="n">${count}</div>
+    </button>`;
+
+  el.innerHTML=`<div class="page-header">
+    <div>
+      <h1>我的工作</h1>
+      <div class="muted">預設顯示已接單未完工任務；點擊統計區塊可切換清單篩選。</div>
+    </div>
+    <div class="toolbar">
+      <button class="primary" id="newSelfTask">＋新增自己的工作</button>
+      <div class="segmented">
+        <button data-mode="list" class="${myMode==='list'?'active':''}">清單</button>
+        <button data-mode="calendar" class="${myMode==='calendar'?'active':''}">日曆</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cards">
+    ${stat('pending','待接受',pending)}
+    ${stat('accepted','已接單',accepted)}
+    ${stat('completed','已完成',completed)}
+    ${stat('overdue','已逾期',overdue)}
+  </div>
+
+  <div id="myBody"></div>`;
+
+  $('#newSelfTask').onclick=()=>{
+    $('#selfTaskForm').reset();
+    $('#selfTaskForm [name="plannedHours"]').value='8';
+    $('#selfTaskForm [name="periodCount"]').value='4';
+    $('#selfTaskPeriodicFields').classList.add('hidden');
+    $('#periodCountField').classList.remove('hidden');
+    $('#periodEndDateField').classList.add('hidden');
+    $('#selfTaskCollaborativeFields').classList.add('hidden');
+    $('#selfTaskCollaborators').innerHTML=users
+      .filter(u=>String(u.id)!==String(me.id)&&u.active)
+      .map(u=>`<option value="${attr(u.id)}">${escapeHtml(u.displayName)}</option>`)
+      .join('');
+    refreshTaskTitleOptions();
+    $('#selfTaskDialog').showModal();
+  };
+
+  $$('[data-my-filter]',el).forEach(b=>{
+    b.addEventListener('click',()=>{
+      myListFilter=b.dataset.myFilter;
+      myMode='list';
+      renderMy();
+    });
+  });
+
+  $$('[data-mode]',el).forEach(b=>b.addEventListener('click',()=>{
+    myMode=b.dataset.mode;
+    renderMy();
+  }));
+
+  myMode==='list'?renderMyList():renderCalendar();
+}
+
+function renderMyList(){
+  const body=$('#myBody');
+  if(!body)return;
+
+  const filtered=incoming.filter(t=>myFilterMatch(t,myListFilter));
+
+  const rows=filtered.map(t=>`<tr class="${colorClass(t)}">
+    <td>
+      ${t.urgent?'<span class="urgent">!</span> ':''}
+      <button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button>
+      ${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}
+      ${t.selfAssigned?'<div class="mini">自己建立</div>':''}
+    </td>
+    <td>${escapeHtml(t.requesterName)}</td>
+    <td>${fmtDate(t.requestDate)}</td>
+    <td>${num(t.plannedHours)}h</td>
+    <td>
+      <span class="visibility-badge ${t.visibility==='private'?'private':'public'}">
+        ${t.visibility==='private'?'私人':'公開'}
+      </span>
+    </td>
+    <td><span class="badge ${t.status}">${statusText(t.status)}</span></td>
+    <td>${taskActions(t)}</td>
+  </tr>`).join('');
+
+  body.innerHTML=`
+    <div class="my-list-filter-title">
+      <strong>${escapeHtml(myFilterTitle())}</strong>
+      <span class="mini">${filtered.length} 筆</span>
+    </div>
+    <div class="panel table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>工作類型</th>
+            <th>派工者</th>
+            <th>需求日期</th>
+            <th>預估工時</th>
+            <th>公開</th>
+            <th>狀態</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows||`<tr><td colspan="7" class="empty">目前沒有「${escapeHtml(myFilterTitle())}」工作</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+
+  bindTaskActions(body);
+}
 
 function toggleSelfCollaborativeFields(){
   const checked=$('#selfTaskCollaborative').checked;
@@ -1127,7 +1328,7 @@ async function handleSelfTask(e){
     alert(err.message);
   }
 }
-function renderMyList(){const body=$('#myBody');const rows=incoming.map(t=>`<tr class="${colorClass(t)}"><td>${t.urgent?'<span class="urgent">!</span> ':''}<button class="link-btn" data-detail="${t.id}">${escapeHtml(t.workType)}</button>${t.isCollaborative?'<span class="collab-badge">共同作業</span>':''}${t.selfAssigned?'<div class="mini">自己建立</div>':''}</td><td>${escapeHtml(t.requesterName)}</td><td>${fmtDate(t.requestDate)}</td><td>${num(t.plannedHours)}h</td><td><span class="visibility-badge ${t.visibility==='private'?'private':'public'}">${t.visibility==='private'?'私人':'公開'}</span></td><td><span class="badge ${t.status}">${statusText(t.status)}</span></td><td>${taskActions(t)}</td></tr>`).join('');body.innerHTML=`<div class="panel table-scroll"><table><thead><tr><th>工作類型</th><th>派工者</th><th>需求日期</th><th>預估工時</th><th>狀態</th><th>操作</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">目前沒有工作</td></tr>'}</tbody></table></div>`;bindTaskActions(body)}
+
 function taskActions(t){if(t.status==='pending')return`<div class="row-actions"><button class="secondary" data-accept="${t.id}">接受</button><button class="danger" data-reject="${t.id}">拒絕</button></div>`;if(['accepted','completed'].includes(t.status))return`<div class="row-actions"><button class="ghost" data-urgent="${t.id}" data-value="${t.urgent?0:1}">${t.urgent?'取消緊急':'標示緊急'}</button><button class="secondary" data-complete="${t.id}" data-value="${t.status==='completed'?0:1}">${t.status==='completed'?'改回未完成':'完成'}</button></div>`;if(t.status==='cancelled')return`<button class="secondary" data-restart="${t.id}">重新啟動</button>`;return t.rejectionReason?`<span class="muted">理由：${escapeHtml(t.rejectionReason)}</span>`:'-'}
 function bindTaskActions(root){
   $$('[data-detail]',root).forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));

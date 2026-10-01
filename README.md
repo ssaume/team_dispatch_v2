@@ -1,93 +1,109 @@
-# Team Dispatch v2.11.4 — revised before deployment
+# Team Dispatch v2.11.5
 
-此包取代先前未部署的 v2.11.4，版本號維持不變。
+## 1. F5 不再強制回登入畫面
 
-## 1. Admin 區塊同步
+Token 仍使用 `sessionStorage`，維持 tab-scoped 安全模型。
 
-Admin 的 related-task polling 現在視所有 Task 為關聯資料。
+v2.11.5 啟動：
+1. ping backend
+2. 如果本分頁已有 sessionStorage token
+3. 呼叫 `me`
+4. Session 有效 → 自動恢復登入後畫面、loadAll、啟動同步 watcher
+5. Session 無效 / 過期 → 才回登入
 
-其他 User 更新 Task 時：
-- Admin 正開著「系統管理 → 人員工作管理」：自動重抓 task list
-- Admin 正開著「人員工作日曆」Dialog：自動重抓該 User 工作 / Allocation / Leave / Trip
-- Admin 不在相關畫面：標記 stale，下次進入系統管理時更新
+因此同一個 browser tab 按 F5 不需要重新登入。
 
-避免重建 Admin 表單造成正在輸入的帳號資料被清空，所以一般 Task 變更只更新 task list / user-work dialog。
+## 2. 修改需求日 / 總工時 Timeout 優化
 
-## 2. 公開儀表板改為 30 秒提示檢查
+這兩種操作是目前最重的排程重建操作。
 
-Apps Script 後端仍在每次成功寫入後更新 Script Properties 的 public revision。
+v2.11.5：
+- updateSelfTaskRequestDate / updateTaskPlannedHours / updateTaskSchedule timeout 最低提高至 90 秒
+- Allocation 刪除由逐列 deleteRow 改成連續列批次 deleteRows
+- appendAllocationPlan 改成一次 setValues 批次新增
+- 修改需求日 / 總工時時，Leaves 只讀一次，不再為每一天反覆 readObjects
+- 寫入完成後的畫面 refresh 延續 silent refresh
 
-公開儀表板：
-- 不自動重新抓完整 Dashboard
-- 每 30 秒只查一次 public revision
-- revision 改變 → 顯示「有新的資料更新」
-- User 自己按「重新整理」才讀完整 Dashboard
+這會明顯降低 Spreadsheet service call 數量。
 
-目前 GitHub Pages + Apps Script 沒有 WebSocket / Server Push，
-因此後端不能主動把訊息推到瀏覽器；30 秒的輕量 revision polling 是較穩定的折衷。
+## 3. 每個人可修改自己的密碼
 
-## 3. 指派任務來源可修改需求日
+Sidebar 增加「修改密碼」。
 
-透過「指派任務」建立的 Task，requester 現在可在任務詳細資料修改需求日。
+需要：
+- 目前密碼
+- 新密碼
+- 確認新密碼
 
-權限：
-- requester
-- self-assigned owner
-- Admin
+規則：
+- 新密碼至少 8 碼
+- 必須驗證目前密碼
+- 新密碼兩次輸入必須相同
+- 新密碼不可與目前密碼相同
 
-狀態：
-- pending
-- accepted
+更新成功後：
+- 目前分頁 Session 保留
+- 該 User 其他裝置 / 分頁的 Session 失效
 
-排程規則：
-- 過去 `workDate < today` 完全保留
-- 剩餘工時 = plannedHours - 已發生工時
-- 新需求日期內重新建立未來排程
-- 原本個人已調整過的未來 Allocation 作為權重
-- 新增加的可排程日期使用目前平均權重
-- 因此延長需求日會把工作帶入新增日期，而不是全部留在舊日期
-- 共同作業仍依 collaborationGroupId 同步需求日，但各人依自己的 Allocation 權重平準
+Admin 原有重設其他 User 密碼功能不變。
 
-pending Task 尚未有 Allocation，只更新 requestDate。
+## 4. 我的工作列表篩選
 
-## 4. 等待視窗
+清單模式預設：
+`已接單未完工`
 
-commitOverlay 原本的圓形 spinner 改為純 CSS3 幾何動畫：
-- 四個幾何方塊
-- 旋轉 + pulse
-- 不使用圖片 / SVG / JS animation
-- 支援 prefers-reduced-motion
+上方四個統計卡可以直接點擊：
+- 待接受
+- 已接單
+- 已完成
+- 已逾期
 
-## 5. 等待時間 UX 優化
+點擊後自動切回清單模式並只顯示該類工作。
 
-GitHub Pages + Apps Script 的寫入仍必須等待 server acknowledgment，
-否則前端無法知道 Google Sheet 是否真的成功寫入。
+已逾期 = pending / accepted 且需求日早於今天。
+completed / rejected / cancelled 不計入逾期。
 
-但 v2.11.4 revised 減少「不必要的第二次等待」：
-- 第一次 login 的 loadAll 保留 loading
-- 完成寫入後的 loadAll refresh 預設 silent
-- Team 自動同步 refresh 為 silent
-- Admin 自動同步 refresh 為 silent
-- write request queue / conflict check 仍保留
+## 多人登入 Queue 評估
 
-真正耗時主要來自：
-1. Browser → Apps Script HTTP round trip
-2. Apps Script cold start / execution queue
-3. SpreadsheetApp 多次 read/write
-4. ScriptLock 等待
+### GitHub Pages
+GitHub Pages 只提供靜態 HTML / JS / CSS，本身不會把 Team Dispatch 的資料操作排隊。
+真正的資料 request 都送往 Google Apps Script。
 
-後續若要再大幅提升速度，優先順序建議：
-- 一次 read DataRange 後在記憶體共用，減少同 request 重複 readObjects_
-- 批次 setValues / append，減少逐 row Spreadsheet I/O
-- CacheService 快取 Users / Holidays / public lookup
-- 將 teamCalendar 做 revision-key cache
-- 長期若需要真正 push / real-time，可改 Firebase / Supabase / Cloud Run；GitHub Pages + GAS 本身沒有 WebSocket push
+### Browser 同一分頁
+v2.10+ 已有 writeRpcQueue：
+- 同一分頁的 write action 會依序送出
+- Write 1 完成後才送 Write 2
+- 避免同一個 User 快速點擊造成同分頁併發寫入
+
+### 不同電腦 / 不同分頁
+各 Browser 有自己的 write queue，因此：
+- A 電腦與 B 電腦可以同時發 request
+- 到 GAS 後，含 `withLock_()` 的寫入區段會競爭 ScriptLock
+- lock wait 最長 30 秒
+- 前一個寫入較久時，後一個 request 會等待 lock
+
+### 容易排隊的情境
+1. 多人同時接受任務
+2. 多人同時修改排程 / 工時 / 需求日
+3. 大量共同作業同步重建 Allocation
+4. 新增請假後需要重平衡 Allocation
+5. Admin 新增國定假日並重平衡多人排程
+6. Admin / User 同時修改同一 Task
+7. polling 剛好與大量 write 同時發生
+8. Apps Script cold start / Google 平台本身 execution queue
+
+### 不會被 ScriptLock 長時間卡住的典型讀取
+- ping
+- publicSyncState
+- teamSyncState
+- 一般純 read API
+
+但讀取仍可能受 GAS execution concurrency、Spreadsheet service 延遲影響。
 
 ## 部署
-
 Apps Script：
 - 更新 Code.gs
-- Deploy v2.11.4
+- Deploy v2.11.5
 
 GitHub：
 - 更新 app.js
@@ -95,4 +111,7 @@ GitHub：
 - styles.css
 
 config.js 不修改。
-Google Sheet 無 schema 變更，不需初始化。
+
+Google Sheet：
+- 無 schema 變更
+- 不需初始化
