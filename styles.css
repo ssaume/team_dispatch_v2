@@ -1368,3 +1368,158 @@ dialog.loading-dialog .commit-loading-card{
     width:calc(100vw - 20px);
   }
 }
+
+/* v2.11.6.1 Guide readability redesign */
+.guide-dialog{
+  width:min(720px,calc(100vw - 28px));
+  max-height:90vh;
+  border:0;
+  padding:0;
+  background:transparent;
+}
+.guide-dialog::backdrop{
+  background:rgba(20,31,40,.50);
+  backdrop-filter:blur(3px);
+}
+.guide-card{
+  width:100%;
+  max-height:88vh;
+  overflow:auto;
+  padding:0 22px 22px;
+  border-radius:20px;
+  background:#f7fafb;
+  box-shadow:0 24px 70px rgba(18,45,60,.24);
+}
+.guide-card>.dialog-header{
+  position:sticky;
+  top:0;
+  z-index:3;
+  margin:0 -22px 18px;
+  padding:16px 22px;
+  background:rgba(255,255,255,.97);
+  border-bottom:1px solid #dce8ed;
+  backdrop-filter:blur(8px);
+}
+.guide-body{
+  color:var(--ink);
+  line-height:1.55;
+}
+.guide-hero{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  margin-bottom:16px;
+  padding:16px 18px;
+  border:1px solid #cfe4ee;
+  border-radius:16px;
+  background:linear-gradient(135deg,#eef9fd,#f7fbfd);
+}
+.guide-hero-mark{
+  display:grid;
+  place-items:center;
+  width:46px;
+  height:46px;
+  flex:0 0 46px;
+  border-radius:14px;
+  background:#3c91b6;
+  color:#fff;
+  font-size:25px;
+  font-weight:900;
+  box-shadow:0 8px 20px rgba(60,145,182,.22);
+}
+.guide-hero-title{
+  font-size:19px;
+  font-weight:900;
+  color:#244b5d;
+}
+.guide-hero-subtitle{
+  margin-top:3px;
+  color:#617985;
+  font-size:13px;
+}
+.guide-section-list{
+  display:grid;
+  gap:11px;
+}
+.guide-section-card{
+  display:grid;
+  grid-template-columns:48px 1fr;
+  gap:13px;
+  align-items:flex-start;
+  padding:14px 15px;
+  border:1px solid #dce8ed;
+  border-radius:14px;
+  background:#fff;
+}
+.guide-section-card h4{
+  margin:0 0 4px;
+  font-size:15px;
+  color:#294e60;
+}
+.guide-section-card p{
+  margin:0;
+  color:#526a76;
+  font-size:13px;
+}
+.guide-section-index{
+  display:grid;
+  place-items:center;
+  min-height:38px;
+  padding:0 7px;
+  border-radius:10px;
+  background:#e8f4f9;
+  color:#397b99;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.04em;
+}
+.guide-section-alert{
+  border-color:#eed7a0;
+  background:#fffbf1;
+}
+.guide-section-alert .guide-section-index{
+  background:#fff0c7;
+  color:#8b6417;
+}
+.guide-dialog .dialog-actions{
+  position:sticky;
+  bottom:-22px;
+  z-index:2;
+  margin:18px -22px -22px;
+  padding:14px 22px;
+  background:rgba(255,255,255,.97);
+  border-top:1px solid #dce8ed;
+  backdrop-filter:blur(8px);
+}
+.task-detail-guide-row{
+  display:flex;
+  justify-content:flex-end;
+  margin:-4px 0 10px;
+}
+.task-guide-btn{
+  border-color:#9cc9dc;
+  background:#f2fafd;
+  color:#347b9f;
+  font-weight:900;
+}
+@media(max-width:640px){
+  .guide-dialog{
+    width:100vw;
+    max-width:none;
+    height:100dvh;
+    max-height:none;
+    margin:0;
+  }
+  .guide-card{
+    width:100vw;
+    min-height:100dvh;
+    max-height:100dvh;
+    border-radius:0;
+  }
+  .guide-section-card{
+    grid-template-columns:42px 1fr;
+  }
+  .guide-hero{
+    align-items:flex-start;
+  }
+}

@@ -1,6 +1,6 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.6';
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.6.1';
 let assignmentPollTimer=null;
 let assignmentPollCursor='';
 let assignmentPollBusy=false;
@@ -62,7 +62,7 @@ function setToken(v){
 }
 
 function syncVersionDisplay(){
-  const version=String(backendVersion||'2.11.6').replace(/^v/,'');
+  const version=String(backendVersion||'2.11.6.1').replace(/^v/,'');
   $$('.app-version').forEach(el=>{
     el.textContent=`v${version}`;
   });
@@ -530,56 +530,67 @@ async function pollAssignedTaskNotifications(){
 const GUIDE_CONTENT={
   dashboard:{
     title:'任務儀表板',
-    intro:'免登入查看團隊公開任務、休假／出差資訊與 Loading 概況。',
-    items:[
-      '各區塊可展開或收合；「已派發未來任務」列出全部未結公開任務。',
-      'Loading 熱力圖顯示未來兩週；部分請假會降低當日可用工時，出差只標示、不扣 Loading。',
-      '資料有異動時頁面只顯示更新提示；按「重新整理」才會重新取得完整資料。'
+    subtitle:'快速掌握團隊目前公開的工作與出勤資訊',
+    sections:[
+      {icon:'01',title:'你可以看什麼',text:'查看本週任務、未結任務、近期出差、休假計畫，以及未來兩週的 Loading 熱力圖。'},
+      {icon:'02',title:'怎麼操作',text:'各區塊可展開或收合；右上角「重新整理」會重新讀取完整儀表板。'},
+      {icon:'!',title:'重要規則',text:'出差只顯示標記，不扣除 Loading；若偵測到資料更新，只會先提示，不會自動改變目前畫面。'}
     ]
   },
   my:{
     title:'我的工作',
-    intro:'管理自己收到或自己建立的任務，以及每日工時排程。',
-    items:[
-      '預設清單顯示「已接單未完工」；點上方待接受／已接單／已完成／已逾期可快速篩選。',
-      '點任務名稱可修改允許的內容、需求日、總工時與日排程；過去已發生工時會鎖定。',
-      '日曆模式可拖拉或分拆未來 Allocation；共同作業每個人的每日排程彼此獨立。'
+    subtitle:'處理自己收到、建立與執行中的所有任務',
+    sections:[
+      {icon:'01',title:'先看上方四個區塊',text:'預設顯示「已接單未完工」。點「待接受／已接單／已完成／已逾期」即可篩選下方清單。'},
+      {icon:'02',title:'點任務名稱看詳細資料',text:'可依權限修改工作內容、需求日、總工時與未來排程，也可進行完成、中止、重啟或共同作業操作。'},
+      {icon:'03',title:'日曆怎麼用',text:'未來 Allocation 可拖拉或分拆；已發生的歷史工時會鎖定，不會被後續計畫修改。'}
     ]
   },
   request:{
     title:'指派任務',
-    intro:'將任務派給一位或多位成員，並追蹤對方接單狀態。',
-    items:[
-      '可一次選多位被派工者；每位會建立獨立任務並各自承擔完整預估工時。',
-      '送出前會檢查 Loading、請假、出差與國定假日並提供提示。',
-      '點既有任務名稱可檢視內容；派工者可依權限調整需求日，接受／拒絕狀態會同步更新。'
+    subtitle:'派工給一位或多位成員，並追蹤每個人的處理狀態',
+    sections:[
+      {icon:'01',title:'建立派工',text:'可一次選擇多位成員。每位成員會建立自己的 Task，並各自承擔完整預估工時。'},
+      {icon:'02',title:'送出前檢查',text:'系統會檢查 Loading、請假、出差與國定假日，若有風險會先提示再讓你決定是否送出。'},
+      {icon:'03',title:'派工後追蹤',text:'點任務名稱可查看詳細資料；被派工者接受、拒絕、完成或中止後，狀態會同步回這個頁面。'}
     ]
   },
   schedule:{
     title:'請假／出差',
-    intro:'維護自己的請假與出差紀錄，供排程與團隊出勤使用。',
-    items:[
-      '請假可精確到分鐘，會降低對應工作日的可用工時並影響 Loading 分母。',
-      '出差以日期為單位顯示在團隊出勤，但不扣除可用工時。',
-      '新增請假若碰到既有 Allocation，系統會依規則重新配置未來排程。'
+    subtitle:'維護個人不可用時間與出差紀錄',
+    sections:[
+      {icon:'01',title:'請假',text:'可精確到分鐘。請假會降低當日可用工時，並影響 Loading 的分母。'},
+      {icon:'02',title:'出差',text:'以日期為單位顯示在團隊出勤中，但不會降低 Loading 可用工時。'},
+      {icon:'!',title:'排程影響',text:'新增請假若碰到既有 Allocation，系統可能需要重新配置未來排程，因此處理時間可能較長。'}
     ]
   },
   team:{
     title:'團隊出勤',
-    intro:'查看全員未來 14 天的 Loading、請假、出差與國定假日。',
-    items:[
-      '每次進入此頁都會先確認最新 Team revision，再直接抓取最新 Team Calendar，不使用舊畫面後再二次重整。',
-      'Loading 可超過 100%，代表該日排程工時高於可用工時；部分請假會降低當日可用時數。',
-      '頁面開啟期間會持續偵測其他使用者造成的 Loading 變更並自動同步。'
+    subtitle:'一次查看全員未來 14 天的 Loading 與出勤狀況',
+    sections:[
+      {icon:'01',title:'Loading',text:'顯示每位成員每日 Loading；超過 100% 代表當日排程工時高於可用工時。'},
+      {icon:'02',title:'出勤標記',text:'國定假日、請假與出差會顯示在日期格中；部分請假會降低當日可用時數。'},
+      {icon:'03',title:'同步方式',text:'進入本頁時直接抓最新資料；停留期間若其他人造成 Loading 變化，也會自動同步。'}
     ]
   },
   admin:{
     title:'系統管理',
-    intro:'Admin 維護帳號、國定假日並檢視／代管全員工作。',
-    items:[
-      '可建立、啟用／停用帳號與重設密碼；一般使用者也可自行修改自己的密碼。',
-      '「人員工作管理」可檢視全部任務；點團隊出勤中的人員可開啟其工作日曆進行代管。',
-      '新增國定假日可能觸發多人 Allocation 重平衡，屬於較重的後端操作。'
+    subtitle:'管理帳號、假日，以及全員工作內容',
+    sections:[
+      {icon:'01',title:'帳號管理',text:'可建立、啟用／停用帳號與重設密碼；一般使用者也能自行修改自己的密碼。'},
+      {icon:'02',title:'工作代管',text:'可查看全員任務與人員工作日曆，必要時由 Admin 代為調整。'},
+      {icon:'!',title:'較重的操作',text:'新增國定假日或大量排程異動可能需要重建多人的 Allocation，這類操作會比一般修改久。'}
+    ]
+  },
+  task:{
+    title:'任務詳細資訊',
+    subtitle:'這裡是單一任務的完整操作中心',
+    sections:[
+      {icon:'01',title:'先看摘要',text:'最上方可確認工作名稱、目前狀態、需求日、預估總工時、公開屬性，以及是否為共同作業。'},
+      {icon:'02',title:'設定與排程',text:'依你的權限，可修改工作內容、需求日、總工時、公開屬性與每日 Allocation。更新總工時或需求日後，未來工時會重新配比。'},
+      {icon:'03',title:'歷史工時',text:'workDate 早於今天的 Allocation 視為已發生工時，會鎖定，不允許後續修改或移動。'},
+      {icon:'04',title:'共同作業',text:'共同作業的每位成員擁有自己的 Task 與每日排程；共享欄位會依規則同步，但個人的 Allocation 比例彼此獨立。'},
+      {icon:'!',title:'狀態操作',text:'完成、中止與重新啟動都會影響 Loading。若其他裝置已先修改同一任務，系統會阻擋舊資料覆蓋並要求重新整理。'}
     ]
   }
 };
@@ -595,10 +606,25 @@ function openGuide(key){
 
   $('#guideDialogTitle').textContent=data.title;
   $('#guideDialogBody').innerHTML=`
-    <p>${escapeHtml(data.intro)}</p>
-    <ol>
-      ${data.items.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}
-    </ol>`;
+    <div class="guide-hero">
+      <div class="guide-hero-mark">?</div>
+      <div>
+        <div class="guide-hero-title">${escapeHtml(data.title)}</div>
+        <div class="guide-hero-subtitle">${escapeHtml(data.subtitle||'')}</div>
+      </div>
+    </div>
+
+    <div class="guide-section-list">
+      ${(data.sections||[]).map((section,index)=>`
+        <section class="guide-section-card ${section.icon==='!'?'guide-section-alert':''}">
+          <div class="guide-section-index">${escapeHtml(section.icon||String(index+1).padStart(2,'0'))}</div>
+          <div>
+            <h4>${escapeHtml(section.title)}</h4>
+            <p>${escapeHtml(section.text)}</p>
+          </div>
+        </section>
+      `).join('')}
+    </div>`;
 
   try{
     if(!dialog.open)dialog.showModal();
@@ -692,7 +718,7 @@ async function connectBackend(){
 
   try{
     const pingResult=await rpc('ping');
-    backendVersion=String(pingResult?.version||backendVersion||'2.11.6').replace(/^v/,'');
+    backendVersion=String(pingResult?.version||backendVersion||'2.11.6.1').replace(/^v/,'');
     backendReady=true;
     syncVersionDisplay();
 
@@ -1874,6 +1900,9 @@ function openDetail(id){
     : '';
 
   $('#taskDetail').innerHTML=`
+  <div class="task-detail-guide-row">
+    <button type="button" class="ghost guide-btn task-guide-btn" data-guide="task">Guide</button>
+  </div>
   <div class="task-detail-summary">
     <div class="task-detail-summary-main">
       <div class="task-detail-eyebrow">工作任務</div>
