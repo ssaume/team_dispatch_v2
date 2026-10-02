@@ -1,6 +1,6 @@
 
 const $=(s,root=document)=>root.querySelector(s);const $$=(s,root=document)=>[...root.querySelectorAll(s)];const app=$('#app');const cfg=window.TEAM_DISPATCH_CONFIG||{};
-let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.5';
+let rpcSeq=1;const pendingRpc=new Map();let backendReady=false;let backendVersion='2.11.6';
 let assignmentPollTimer=null;
 let assignmentPollCursor='';
 let assignmentPollBusy=false;
@@ -62,7 +62,7 @@ function setToken(v){
 }
 
 function syncVersionDisplay(){
-  const version=String(backendVersion||'2.11.5').replace(/^v/,'');
+  const version=String(backendVersion||'2.11.6').replace(/^v/,'');
   $$('.app-version').forEach(el=>{
     el.textContent=`v${version}`;
   });
@@ -525,39 +525,187 @@ async function pollAssignedTaskNotifications(){
 }
 
 
-async function connectBackend(){
-  // v2.11.5: sessionStorage survives F5 in the same browser tab.
-  // Keep the existing tab-scoped token and restore the authenticated UI
-  // when the session is still valid.
-  localStorage.removeItem('teamDispatchToken');
-  showLogin();
 
-  const st=$('#bridgeState');
+
+const GUIDE_CONTENT={
+  dashboard:{
+    title:'任務儀表板',
+    intro:'免登入查看團隊公開任務、休假／出差資訊與 Loading 概況。',
+    items:[
+      '各區塊可展開或收合；「已派發未來任務」列出全部未結公開任務。',
+      'Loading 熱力圖顯示未來兩週；部分請假會降低當日可用工時，出差只標示、不扣 Loading。',
+      '資料有異動時頁面只顯示更新提示；按「重新整理」才會重新取得完整資料。'
+    ]
+  },
+  my:{
+    title:'我的工作',
+    intro:'管理自己收到或自己建立的任務，以及每日工時排程。',
+    items:[
+      '預設清單顯示「已接單未完工」；點上方待接受／已接單／已完成／已逾期可快速篩選。',
+      '點任務名稱可修改允許的內容、需求日、總工時與日排程；過去已發生工時會鎖定。',
+      '日曆模式可拖拉或分拆未來 Allocation；共同作業每個人的每日排程彼此獨立。'
+    ]
+  },
+  request:{
+    title:'指派任務',
+    intro:'將任務派給一位或多位成員，並追蹤對方接單狀態。',
+    items:[
+      '可一次選多位被派工者；每位會建立獨立任務並各自承擔完整預估工時。',
+      '送出前會檢查 Loading、請假、出差與國定假日並提供提示。',
+      '點既有任務名稱可檢視內容；派工者可依權限調整需求日，接受／拒絕狀態會同步更新。'
+    ]
+  },
+  schedule:{
+    title:'請假／出差',
+    intro:'維護自己的請假與出差紀錄，供排程與團隊出勤使用。',
+    items:[
+      '請假可精確到分鐘，會降低對應工作日的可用工時並影響 Loading 分母。',
+      '出差以日期為單位顯示在團隊出勤，但不扣除可用工時。',
+      '新增請假若碰到既有 Allocation，系統會依規則重新配置未來排程。'
+    ]
+  },
+  team:{
+    title:'團隊出勤',
+    intro:'查看全員未來 14 天的 Loading、請假、出差與國定假日。',
+    items:[
+      '每次進入此頁都會先確認最新 Team revision，再直接抓取最新 Team Calendar，不使用舊畫面後再二次重整。',
+      'Loading 可超過 100%，代表該日排程工時高於可用工時；部分請假會降低當日可用時數。',
+      '頁面開啟期間會持續偵測其他使用者造成的 Loading 變更並自動同步。'
+    ]
+  },
+  admin:{
+    title:'系統管理',
+    intro:'Admin 維護帳號、國定假日並檢視／代管全員工作。',
+    items:[
+      '可建立、啟用／停用帳號與重設密碼；一般使用者也可自行修改自己的密碼。',
+      '「人員工作管理」可檢視全部任務；點團隊出勤中的人員可開啟其工作日曆進行代管。',
+      '新增國定假日可能觸發多人 Allocation 重平衡，屬於較重的後端操作。'
+    ]
+  }
+};
+
+function guideButton(key){
+  return `<button type="button" class="ghost guide-btn" data-guide="${key}">Guide</button>`;
+}
+
+function openGuide(key){
+  const data=GUIDE_CONTENT[key];
+  const dialog=$('#guideDialog');
+  if(!data||!dialog)return;
+
+  $('#guideDialogTitle').textContent=data.title;
+  $('#guideDialogBody').innerHTML=`
+    <p>${escapeHtml(data.intro)}</p>
+    <ol>
+      ${data.items.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}
+    </ol>`;
+
+  try{
+    if(!dialog.open)dialog.showModal();
+  }catch{
+    dialog.setAttribute('open','');
+  }
+}
+
+document.addEventListener('click',e=>{
+  const btn=e.target.closest?.('[data-guide]');
+  if(btn)openGuide(btn.dataset.guide);
+});
+
+function closeGuideDialog(){
+  const dialog=$('#guideDialog');
+  if(!dialog)return;
+  try{
+    if(dialog.open)dialog.close();
+  }catch{
+    dialog.removeAttribute('open');
+  }
+}
+
+$('#guideDialogClose')?.addEventListener('click',closeGuideDialog);
+$('#guideDialogDone')?.addEventListener('click',closeGuideDialog);
+
+
+function lastMainView(){
+  const v=sessionStorage.getItem('teamDispatchLastView')||'my';
+  return ['my','request','schedule','team','admin'].includes(v)?v:'my';
+}
+
+function rememberMainView(name){
+  if(['my','request','schedule','team','admin'].includes(name)){
+    sessionStorage.setItem('teamDispatchLastView',name);
+  }
+}
+
+function showSessionRestore(){
+  app.innerHTML=`
+    <main class="session-restore-shell">
+      <section class="session-restore-card">
+        <div class="td-geometry-loader" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </div>
+        <div>
+          <strong>正在恢復登入狀態</strong>
+          <div class="muted">正在確認 Session 與最新資料…</div>
+        </div>
+      </section>
+    </main>`;
+}
+
+function restoreMainView(){
+  let view=lastMainView();
+  if(view==='admin'&&me?.role!=='admin')view='my';
+
+  const btn=$(`.nav-btn[data-view="${view}"]`);
+  switchView(view,btn,{remember:false});
+}
+
+
+async function connectBackend(){
+  // v2.11.6: if this tab already has a session token, never paint the
+  // login template first. Show a neutral restore screen until validation
+  // finishes, eliminating the F5 login-page flash.
+  localStorage.removeItem('teamDispatchToken');
+
+  const existingToken=token();
+
+  if(existingToken){
+    showSessionRestore();
+  }else{
+    showLogin();
+  }
+
   if(!cfg.APPS_SCRIPT_URL||cfg.APPS_SCRIPT_URL.includes('PASTE_YOUR_')){
-    st.textContent='尚未設定 Apps Script URL';
-    st.className='bridge-state bad';
-    $('#loginError').textContent='請先修改 config.js 的 APPS_SCRIPT_URL。';
+    if(existingToken){
+      setToken('');
+      showLogin();
+    }
+
+    const st=$('#bridgeState');
+    if(st){
+      st.textContent='尚未設定 Apps Script URL';
+      st.className='bridge-state bad';
+    }
+    if($('#loginError'))$('#loginError').textContent='請先修改 config.js 的 APPS_SCRIPT_URL。';
     return;
   }
 
   try{
     const pingResult=await rpc('ping');
-    backendVersion=String(pingResult?.version||backendVersion||'2.11.5').replace(/^v/,'');
+    backendVersion=String(pingResult?.version||backendVersion||'2.11.6').replace(/^v/,'');
     backendReady=true;
     syncVersionDisplay();
 
-    const existingToken=token();
-
     if(existingToken){
       try{
-        const session=await rpc('me');
+        const session=await rpc('me',{}, {silent:true});
         me=session.user;
         showMain();
-        await loadAll();
+        await loadAll({silent:true});
+        restoreMainView();
         await startAssignmentWatcher();
         return;
       }catch(err){
-        // Token expired / invalid: only then return to login.
         setToken('');
         me=null;
         showLogin();
@@ -571,6 +719,26 @@ async function connectBackend(){
     if($('#loginBtn'))$('#loginBtn').disabled=false;
     if($('#publicDashboardBtn'))$('#publicDashboardBtn').disabled=false;
   }catch(err){
+    if(existingToken){
+      // Connection problem is not the same thing as an invalid session.
+      // Keep a neutral screen instead of flashing the login form.
+      app.innerHTML=`
+        <main class="session-restore-shell">
+          <section class="session-restore-card error-state">
+            <div>
+              <strong>Google Drive 連線失敗</strong>
+              <div class="muted">${escapeHtml(err.message)}</div>
+              <button type="button" class="secondary" id="restoreBackLogin">返回登入</button>
+            </div>
+          </section>
+        </main>`;
+      $('#restoreBackLogin')?.addEventListener('click',()=>{
+        setToken('');
+        showLogin();
+      });
+      return;
+    }
+
     if($('#bridgeState')){
       $('#bridgeState').textContent='Google Drive 連線失敗';
       $('#bridgeState').className='bridge-state bad';
@@ -620,8 +788,10 @@ function showLogin(){
       const d=await rpc('login',{username,password});
       setToken(d.token);
       me=d.user;
+      sessionStorage.setItem('teamDispatchLastView','my');
       showMain();
       await loadAll();
+      restoreMainView();
       await startAssignmentWatcher();
     }catch(err){
       $('#loginError').textContent=err.message;
@@ -984,7 +1154,37 @@ $('#assignmentNotificationGoMy')?.addEventListener('click',()=>{
   switchView('my',btn);
   loadAll();
 })}
-function switchView(name,btn){
+
+async function enterTeamViewFresh(){
+  if(teamSyncRefreshBusy)return;
+
+  teamSyncRefreshBusy=true;
+  teamDataStale=false;
+
+  try{
+    // Establish the newest global revision BEFORE loading the calendar.
+    // This prevents the polling loop from seeing an old local revision and
+    // immediately triggering a second refresh after entering the page.
+    const state=await rpc('teamSyncState',{}, {silent:true});
+    if(state?.team)teamSyncRevision=String(state.team);
+
+    teamCalendarCache.clear();
+
+    // One fresh backend read only. The page shows its own inline loading
+    // state while this request completes.
+    await renderTeamCalendar(true,true);
+  }catch(err){
+    teamDataStale=true;
+    const gantt=$('#teamGantt');
+    if(gantt)gantt.innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
+  }finally{
+    teamSyncRefreshBusy=false;
+  }
+}
+
+
+function switchView(name,btn,options={}){
+  if(options.remember!==false)rememberMainView(name);
   $$('.view').forEach(v=>v.classList.add('hidden'));
   $$('.nav-btn').forEach(v=>v.classList.remove('active'));
   btn?.classList.add('active');
@@ -1020,17 +1220,7 @@ function switchView(name,btn){
 
   if(name==='team'){
     $('#teamView').classList.remove('hidden');
-
-    if(teamDataStale){
-      rpc('teamSyncState')
-        .then(state=>refreshTeamCalendarFromSync(state?.team||teamSyncRevision))
-        .catch(err=>{
-          teamDataStale=true;
-          console.warn('Team Calendar auto refresh failed:',err);
-        });
-    }else{
-      renderTeamCalendar();
-    }
+    enterTeamViewFresh();
   }
 
   if(name==='admin'){
@@ -1152,6 +1342,7 @@ function renderMy(){
       <div class="muted">預設顯示已接單未完工任務；點擊統計區塊可切換清單篩選。</div>
     </div>
     <div class="toolbar">
+      ${guideButton('my')}
       <button class="primary" id="newSelfTask">＋新增自己的工作</button>
       <div class="segmented">
         <button data-mode="list" class="${myMode==='list'?'active':''}">清單</button>
@@ -2282,6 +2473,7 @@ function renderRequest(){
       <h1>指派任務</h1>
       <div class="muted">可一次選擇多位人員；每位人員會建立獨立派工，判定、接單與工時計算都與單一派工相同。</div>
     </div>
+    <div class="toolbar">${guideButton('request')}</div>
   </div>
 
   <div class="request-grid">
@@ -2436,8 +2628,8 @@ function scheduleAvailabilityCheck(form){clearTimeout(availabilityTimer);availab
 }
 
 function availabilityHtml(d){const lines=[`預估期間最高 Loading：<strong>${Math.round(d.peakLoadPct)}%</strong>`];if(d.highLoadDates?.length)lines.push(`Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' ('+Math.round(x.loadPct)+'%)').join('、')}`);if(d.holidays?.length)lines.push(`國定假日：${d.holidays.map(x=>escapeHtml(x.holidayName)+' '+fmtDate(x.holidayDate)).join('；')}`);if(d.leaves?.length)lines.push(`請假：${d.leaves.map(x=>escapeHtml(x.leaveType)+' '+fmtLocalDateTime(x.startDateTime)+'～'+fmtLocalDateTime(x.endDateTime)).join('；')}`);if(d.trips?.length)lines.push(`出差：${d.trips.map(x=>escapeHtml(x.purpose)+' '+fmtDate(x.startDate)+'～'+fmtDate(x.endDate)).join('；')}`);if(!d.hasWarning)lines.push('此期間目前沒有 Loading > 80%、國定假日、請假或出差衝突。');return lines.map(x=>`<div class="hint-line">${x}</div>`).join('')}function availabilityConfirmText(d){const parts=['被派工者的行事曆有以下提示：'];if(d.highLoadDates?.length)parts.push(`• Loading > 80%：${d.highLoadDates.map(x=>fmtDate(x.date)+' '+Math.round(x.loadPct)+'%').join('、')}`);if(d.holidays?.length)parts.push(`• 有 ${d.holidays.length} 個國定假日`);if(d.leaves?.length)parts.push(`• 有 ${d.leaves.length} 筆請假`);if(d.trips?.length)parts.push(`• 有 ${d.trips.length} 筆出差`);parts.push('仍要送出派工嗎？');return parts.join('\n')}
-function renderSchedule(){const el=$('#scheduleView');if(!el)return;const leaveRows=myLeaves.map(x=>`<div class="record-card leave"><div><div class="record-title">${escapeHtml(x.leaveType)}</div><div>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div><div class="mini">只計入週一至週五工作日</div></div><button class="ghost" data-del-leave="${x.id}">刪除</button></div>`).join(''),tripRows=myTrips.map(x=>`<div class="record-card trip"><div><div class="record-title">${escapeHtml(x.purpose)}</div><div>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</div><div class="mini">以天為顆粒度，只計入週一至週五</div></div><button class="ghost" data-del-trip="${x.id}">刪除</button></div>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請假／出差設定</h1><div class="muted">請假可精確到分鐘；出差以天為單位</div></div></div><div class="schedule-grid"><form id="leaveForm" class="form-card"><h3>新增請假</h3><label>假別<input name="leaveType" list="leaveTypes" placeholder="例如：特休" required><datalist id="leaveTypes"><option value="特休"><option value="事假"><option value="病假"><option value="公假"><option value="其他"></datalist></label><label>開始時間<input type="datetime-local" name="startDateTime" step="60" required></label><label>結束時間<input type="datetime-local" name="endDateTime" step="60" required></label><button class="primary">新增請假</button></form><form id="tripForm" class="form-card"><h3>新增出差</h3><label>目的<textarea name="purpose" rows="3" placeholder="例如：台中工廠 UAT Workshop" required></textarea></label><label>開始日期<input type="date" name="startDate" required></label><label>結束日期<input type="date" name="endDate" required></label><button class="primary">新增出差</button></form></div><div class="schedule-grid"><div class="panel panel-pad"><h3>我的請假</h3><div class="record-list">${leaveRows||'<div class="empty">尚無請假紀錄</div>'}</div></div><div class="panel panel-pad"><h3>我的出差</h3><div class="record-list">${tripRows||'<div class="empty">尚無出差紀錄</div>'}</div></div></div>`;$('#leaveForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createLeave',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$('#tripForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createTrip',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$$('[data-del-leave]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此請假紀錄？'))return;try{await rpc('deleteLeave',{id:b.dataset.delLeave});await loadAll();renderSchedule()}catch(e){alert(e.message)}});$$('[data-del-trip]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此出差紀錄？'))return;try{await rpc('deleteTrip',{id:b.dataset.delTrip});await loadAll();renderSchedule()}catch(e){alert(e.message)}})}
-async function renderTeamCalendar(forceRefresh=false,silent=false){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div><div class="mini">登入中會自動同步其他使用者造成的 Loading 變更</div></div><div class="toolbar"><button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar()};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar()};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar()};const end=new Date(teamStart);end.setDate(end.getDate()+13);const startDate=isoDate(teamStart),endDate=isoDate(end),cacheKey=`${startDate}|${endDate}`;try{let d=forceRefresh?null:teamCalendarCache.get(cacheKey);if(!d){d=await rpc('teamCalendar',{startDate,endDate},{silent});teamCalendarCache.set(cacheKey,d)}drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
+function renderSchedule(){const el=$('#scheduleView');if(!el)return;const leaveRows=myLeaves.map(x=>`<div class="record-card leave"><div><div class="record-title">${escapeHtml(x.leaveType)}</div><div>${fmtLocalDateTime(x.startDateTime)} ～ ${fmtLocalDateTime(x.endDateTime)}</div><div class="mini">只計入週一至週五工作日</div></div><button class="ghost" data-del-leave="${x.id}">刪除</button></div>`).join(''),tripRows=myTrips.map(x=>`<div class="record-card trip"><div><div class="record-title">${escapeHtml(x.purpose)}</div><div>${fmtDate(x.startDate)} ～ ${fmtDate(x.endDate)}</div><div class="mini">以天為顆粒度，只計入週一至週五</div></div><button class="ghost" data-del-trip="${x.id}">刪除</button></div>`).join('');el.innerHTML=`<div class="page-header"><div><h1>請假／出差設定</h1><div class="muted">請假可精確到分鐘；出差以天為單位</div></div><div class="toolbar">${guideButton('schedule')}</div></div><div class="schedule-grid"><form id="leaveForm" class="form-card"><h3>新增請假</h3><label>假別<input name="leaveType" list="leaveTypes" placeholder="例如：特休" required><datalist id="leaveTypes"><option value="特休"><option value="事假"><option value="病假"><option value="公假"><option value="其他"></datalist></label><label>開始時間<input type="datetime-local" name="startDateTime" step="60" required></label><label>結束時間<input type="datetime-local" name="endDateTime" step="60" required></label><button class="primary">新增請假</button></form><form id="tripForm" class="form-card"><h3>新增出差</h3><label>目的<textarea name="purpose" rows="3" placeholder="例如：台中工廠 UAT Workshop" required></textarea></label><label>開始日期<input type="date" name="startDate" required></label><label>結束日期<input type="date" name="endDate" required></label><button class="primary">新增出差</button></form></div><div class="schedule-grid"><div class="panel panel-pad"><h3>我的請假</h3><div class="record-list">${leaveRows||'<div class="empty">尚無請假紀錄</div>'}</div></div><div class="panel panel-pad"><h3>我的出差</h3><div class="record-list">${tripRows||'<div class="empty">尚無出差紀錄</div>'}</div></div></div>`;$('#leaveForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createLeave',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$('#tripForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;try{await rpc('createTrip',Object.fromEntries(new FormData(form)));form.reset();await loadAll();renderSchedule()}catch(err){alert(err.message)}});$$('[data-del-leave]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此請假紀錄？'))return;try{await rpc('deleteLeave',{id:b.dataset.delLeave});await loadAll();renderSchedule()}catch(e){alert(e.message)}});$$('[data-del-trip]',el).forEach(b=>b.onclick=async()=>{if(!confirm('刪除此出差紀錄？'))return;try{await rpc('deleteTrip',{id:b.dataset.delTrip});await loadAll();renderSchedule()}catch(e){alert(e.message)}})}
+async function renderTeamCalendar(forceRefresh=false,silent=false){const el=$('#teamView');if(!el)return;el.innerHTML=`<div class="page-header"><div><h1>團隊出勤行事曆</h1><div class="muted">以 8 小時／工作日計算任務 Loading；國定假日與請假日不分配 Loading，出差另行顯示</div><div class="mini">登入中會自動同步其他使用者造成的 Loading 變更</div></div><div class="toolbar">${guideButton('team')}<button class="ghost" id="teamPrev">← 前 14 天</button><button class="ghost" id="teamToday">今天</button><button class="ghost" id="teamNext">後 14 天 →</button></div></div><div class="legend"><span><i class="dot load"></i>Loading ≤80%</span><span><i class="dot high"></i>Loading >80%</span><span><i class="dot holiday"></i>國定假日</span><span><i class="dot leave"></i>請假</span><span><i class="dot trip"></i>出差</span></div><div id="teamGantt" class="gantt-wrap"><div class="empty">載入中…</div></div>`;$('#teamPrev').onclick=()=>{teamStart.setDate(teamStart.getDate()-14);renderTeamCalendar(true,true)};$('#teamToday').onclick=()=>{teamStart=startOfWeek(new Date());renderTeamCalendar(true,true)};$('#teamNext').onclick=()=>{teamStart.setDate(teamStart.getDate()+14);renderTeamCalendar(true,true)};const end=new Date(teamStart);end.setDate(end.getDate()+13);const startDate=isoDate(teamStart),endDate=isoDate(end),cacheKey=`${startDate}|${endDate}`;try{let d=forceRefresh?null:teamCalendarCache.get(cacheKey);if(!d){d=await rpc('teamCalendar',{startDate,endDate},{silent});teamCalendarCache.set(cacheKey,d)}drawTeamGantt(d)}catch(e){$('#teamGantt').innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`}}
 function drawTeamGantt(data){
   const wrap=$('#teamGantt');
   if(!wrap)return;
@@ -3331,6 +3523,7 @@ async function renderAdmin(){
         <h1>系統管理</h1>
         <div class="muted">帳號權限與全團隊共用工作日曆設定</div>
       </div>
+      <div class="toolbar">${guideButton('admin')}</div>
     </div>
 
     <div class="admin-grid">

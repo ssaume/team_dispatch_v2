@@ -23,6 +23,23 @@
     </div>
   </dialog>
 
+  <dialog id="guideDialog" class="guide-dialog">
+    <div class="dialog-card guide-card">
+      <div class="dialog-header">
+        <div>
+          <div class="task-detail-eyebrow">GUIDE</div>
+          <h3 id="guideDialogTitle">畫面操作說明</h3>
+        </div>
+        <button type="button" id="guideDialogClose" class="icon-btn">×</button>
+      </div>
+      <div id="guideDialogBody" class="guide-body"></div>
+      <div class="dialog-actions">
+        <button type="button" id="guideDialogDone" class="primary">知道了</button>
+      </div>
+    </div>
+  </dialog>
+
+
   <template id="loginTpl">
     <main class="login-shell">
       <section class="login-card">
@@ -39,7 +56,7 @@
           </button>
           <div id="loginError" class="error"></div>
         </form>
-        <div class="app-version">v2.11.5</div>
+        <div class="app-version">v2.11.6</div>
       </section>
     </main>
   </template>
@@ -54,6 +71,7 @@
           <p class="muted">免登入檢視目前團隊未結任務，不提供任何修改功能。</p>
         </div>
         <div class="dashboard-header-actions">
+          <button class="ghost guide-btn" data-guide="dashboard" type="button">Guide</button>
           <button class="ghost" id="dashboardRefresh" type="button">重新整理</button>
           <button class="secondary" id="dashboardBackLogin" type="button">返回登入</button>
         </div>
@@ -217,7 +235,7 @@
               <button id="logoutBtn" class="ghost" type="button">登出</button>
             </div>
           </div>
-          <div class="app-version sidebar-version">v2.11.5</div>
+          <div class="app-version sidebar-version">v2.11.6</div>
         </div>
       </aside>
 

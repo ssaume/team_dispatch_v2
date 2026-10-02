@@ -1308,3 +1308,63 @@ dialog.loading-dialog .commit-loading-card{
   flex-wrap:wrap;
   margin-top:8px;
 }
+
+/* v2.11.6 session restore + Guide */
+.session-restore-shell{
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:var(--bg);
+}
+.session-restore-card{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  width:min(420px,calc(100vw - 40px));
+  padding:22px 24px;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:#fff;
+  box-shadow:0 18px 50px rgba(40,70,86,.10);
+}
+.session-restore-card.error-state{
+  border-color:#efc8ce;
+  background:#fff8f9;
+}
+.session-restore-card button{
+  margin-top:12px;
+}
+
+.guide-dialog{
+  width:min(620px,calc(100vw - 28px));
+  border:0;
+  padding:0;
+  background:transparent;
+}
+.guide-card{
+  width:100%;
+}
+.guide-body{
+  color:var(--ink);
+  line-height:1.65;
+}
+.guide-body p{
+  margin:0 0 12px;
+  color:var(--muted);
+}
+.guide-body ol{
+  margin:0;
+  padding-left:22px;
+}
+.guide-body li+li{
+  margin-top:9px;
+}
+.guide-btn{
+  white-space:nowrap;
+}
+@media(max-width:640px){
+  .guide-dialog{
+    width:calc(100vw - 20px);
+  }
+}
